@@ -10,6 +10,35 @@
   <img alt="SQLite" src="https://img.shields.io/badge/SQLite-FTS5-003B57?style=flat-square" />
 </p>
 
+## 界面预览
+
+<p align="center">
+  <img src="screenshots/main-window.png" width="880" alt="纸笺主界面：侧栏（搜索 / 全部笔记 / 回收站 / 导入 / 文件夹 / 标签）+ 笔记列表 + Markdown 预览">
+</p>
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="screenshots/split-mode.png" alt="分栏模式：左侧写 Markdown 源码，右侧实时预览">
+      <br><sub><b>分栏</b> —— 左边写 Markdown，右边实时预览</sub>
+    </td>
+    <td width="50%">
+      <img src="screenshots/settings-panel.png" alt="设置作为界面最右侧的一栏，不遮挡列表与正文">
+      <br><sub><b>设置</b> —— 作为最右侧的一栏，不遮挡列表与正文</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="screenshots/sidebar-collapsed.png" alt="折叠侧栏后只留正文，获得更宽的写作区">
+      <br><sub><b>折叠侧栏</b> —— 只留正文，写作区更宽</sub>
+    </td>
+    <td width="50%">
+      <img src="screenshots/tiles.jpg" alt="桌面便签磁贴：可编辑、自动保存、可固定、可相互吸附成组">
+      <br><sub><b>桌面磁贴</b> —— 可编辑自动保存，可固定，可吸附成组</sub>
+    </td>
+  </tr>
+</table>
+
 ## 特性
 
 | 特性 | 说明 |
