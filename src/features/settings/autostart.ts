@@ -17,22 +17,17 @@
  * ⇒ **UI 必须展示系统状态**，而不是本地偏好。用户可能在系统设置里手动关掉自启，
  * 那时二者不一致，本模块会报告 `drifted` 供 UI 提示。
  *
- * ## 与「最小化到托盘」的组合行为（不产生两个互相矛盾的开关）
- * 复用**既有** `startMinimized` 偏好，不新增重复含义的开关：
- *  - 开启「开机自启」时，若用户**从未亲自设过** `startMinimized`
- *    （`startMinimizedTouched === false`），自动置为 `true`
- *    ⇒ 「开机自启默认最小化到托盘、不打扰用户」；
- *  - 一旦用户亲自动过该开关，组合行为**不再改写**它（尊重用户选择）。
+ * ## 与「最小化到托盘」的关系
+ *
+ * 二者**互不相干**：开机自启只负责把进程拉起来；启动后是否收进托盘由 Rust 侧的
+ * `--minimized` 启动参数决定（见 `src-tauri/src/lib.rs` 的 `started_minimized()`）。
+ * 前端**没有**「启动后最小化到托盘」这个偏好（已删除），因此也不存在组合改写。
  */
 
 import { isTauri } from '@/lib/tauri'
 import {
   readAutostartPreference,
-  readStartMinimized,
-  readStartMinimizedTouched,
   writeAutostartPreference,
-  writeStartMinimized,
-  writeStartMinimizedTouched,
 } from '@/lib/appPreferences'
 
 /* --------------------------- 系统状态读取 --------------------------- */
@@ -143,39 +138,22 @@ export async function setSystemAutostart(
   return { ok: true, before: beforeValue, after: after.enabled, message: null }
 }
 
-/* --------------------------- 组合行为 --------------------------- */
-
-export interface AutostartApplyResult extends AutostartToggleResult {
-  /** 本次是否**因组合行为**自动开启了「开机自启时最小化到托盘」 */
-  autoEnabledStartMinimized: boolean
-}
+/* --------------------------- UI 开关入口 --------------------------- */
 
 /**
- * UI 开关的完整处理（含组合行为与偏好落库）：
+ * UI 开关的完整处理：
  *  1. 落库用户意图（`zhijian.autostart`）—— 用于插件不可用时仍能显示"上次想要的状态"；
- *  2. 调系统 API 并**回读校验**；
- *  3. **组合行为**：开启自启且用户从未亲自设过 `startMinimized` ⇒ 自动置 true
- *     （"开机自启默认最小化到托盘"）；已设过则不改写。
+ *  2. 调系统 API 并**回读校验**。
+ *
+ * 这里曾有一条「开启自启就顺手把前端 `startMinimized` 置 true」的组合行为，
+ * 已随该偏好一并删除 ⇒ 开机自启不再隐式改写任何别的开关。
  */
 export async function applyAutostart(
   enabled: boolean,
   api?: PluginApi,
-): Promise<AutostartApplyResult> {
+): Promise<AutostartToggleResult> {
   writeAutostartPreference(enabled)
-
-  let autoEnabledStartMinimized = false
-  if (enabled && !readStartMinimizedTouched() && !readStartMinimized()) {
-    writeStartMinimized(true)
-    autoEnabledStartMinimized = true
-  }
-
-  const result = await setSystemAutostart(enabled, api)
-  return { ...result, autoEnabledStartMinimized }
-}
-
-/** 用户亲自改了「最小化到托盘」⇒ 记标记，此后组合行为不再自动改写它 */
-export function markStartMinimizedTouched(): void {
-  writeStartMinimizedTouched(true)
+  return setSystemAutostart(enabled, api)
 }
 
 /* --------------------------- 对账（诊断） --------------------------- */

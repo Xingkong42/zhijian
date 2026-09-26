@@ -1178,20 +1178,38 @@ await check('前端依赖的调用面与包导出一致（enable/disable/isEnabl
   }
 })
 
-await check('`--minimized` 与 `startMinimized` 是两条不同路径（不得互相顶替）', () => {
-  // Rust 的 --minimized = 开机自启专用（零闪窗，由 Rust 在 show 之前判定）
-  // 前端的 startMinimized = 手动启动也最小化（初始化完成后 hide，有约 1 秒显示）
-  // 两者若被写成同一个开关的同一语义，就会出现"开机仍闪窗"或"手动启动不最小化"。
+await check('`--minimized` 是「启动后不显示窗口」的唯一路径（前端偏好已删除，不得复活）', () => {
+  // 历史：t17 曾有前端偏好 `zhijian.startMinimized`（WebView 起来后由前端 hide），
+  // 代价是约 1 秒闪现，且它与「开机自启」之间有过一条组合改写。
+  // 该偏好、其设置项与组合行为已整体删除 —— 这条断言就是删除的守卫：
+  // **代码**里（注释不算，注释要留着讲历史）再出现这个标识符即失败。
+  const stripComments = (src) =>
+    src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(?<!:)\/\/[^\n]*/g, '')
+
   const lib = readFileSync(path.join(projectRoot, 'src-tauri/src/lib.rs'), 'utf8')
-  const panel = readFileSync(
-    path.join(projectRoot, 'src/features/settings/SettingsPanel.tsx'),
-    'utf8',
-  )
-  assert(/started_minimized\(\)/.test(lib), 'Rust 侧应保留 --minimized 判定')
-  assert(
-    /readStartMinimized\(\)/.test(panel),
-    '前端侧应保留 startMinimized 偏好读取（两条路径各司其职）',
-  )
+  assert(/started_minimized\(\)/.test(lib), 'Rust 侧应保留 --minimized 判定（开机自启零闪窗）')
+
+  for (const rel of [
+    'src/features/settings/SettingsPanel.tsx',
+    'src/features/settings/autostart.ts',
+    'src/lib/appPreferences.ts',
+  ]) {
+    const source = readFileSync(path.join(projectRoot, rel), 'utf8')
+    const code = stripComments(source)
+    // 防"断言空跑"：stripComments 若把整个文件吃掉了，这里必须炸而不是静默通过
+    assert(code.length > source.length * 0.5, `${rel} 去注释后不应被吃掉大半（防断言空跑）`)
+    assert(
+      !/startMinimized/i.test(code),
+      `${rel} 的代码里不得再出现 startMinimized（该偏好已删除）`,
+    )
+  }
+
+  // 配套改动（勿回退）：主窗口 visible:false + 由 Rust 显式 show，
+  // 否则开机自启会先弹一个空白窗口再收起。
+  const conf = JSON.parse(readFileSync(path.join(projectRoot, 'src-tauri/tauri.conf.json'), 'utf8'))
+  const windows = conf.app?.windows ?? conf.windows ?? []
+  const main = windows.find((w) => w.label === 'main')
+  assert(main && main.visible === false, '主窗口必须 visible:false（何时 show 由 Rust 决定）')
 })
 
 /* ------------------------------------------------------------------ */
@@ -1304,43 +1322,51 @@ await check('切换失败（抛错）时给出可读原因且 after=null', async
   assert(result.message.includes('Access is denied'), '原始原因透传，便于排查')
 })
 
-await check('组合行为：开启自启且用户未设过 → 自动开启「最小化到托盘」', async () => {
+await check('组合行为已删除：自启开关不得改写任何「最小化到托盘」偏好', async () => {
+  // 历史：开启自启时若用户从未亲自设过 startMinimized，就顺手把它置 true。
+  // 该偏好与这条组合行为已整体删除 ⇒ 这条断言同时守行为与 API 形态：
+  //  (1) 返回值里不再有 autoEnabledStartMinimized；
+  //  (2) 调一次 applyAutostart 后 localStorage 里**只**能多出 zhijian.autostart，
+  //      绝不出现 zhijian.startMinimized / zhijian.startMinimizedTouched；
+  //  (3) 相关读写函数与 PREFERENCE_KEYS 条目必须都不存在。
   await withStoredPrefs([], async (store) => {
     const plugin = fakePlugin(false)
     const result = await autostart.applyAutostart(true, plugin.api)
     assertEqual(result.ok, true, '系统侧成功')
-    assertEqual(result.autoEnabledStartMinimized, true, '触发了组合行为')
-    assertEqual(prefs.readStartMinimized(), true, 'startMinimized 被自动置 true')
+    assert(
+      !('autoEnabledStartMinimized' in result),
+      '返回值里不得再有 autoEnabledStartMinimized（组合行为已删除）',
+    )
     assertEqual(store.get(prefs.PREFERENCE_KEYS.autostart), 'true', '用户意图已落库')
+    const leaked = [...store.keys()].filter((key) => key !== prefs.PREFERENCE_KEYS.autostart)
+    assertEqual(leaked.join(','), '', `不得写入其它偏好键（实际：${leaked.join(',') || '无'}）`)
+
+    assert(
+      !('startMinimized' in prefs.PREFERENCE_KEYS) &&
+        !('startMinimizedTouched' in prefs.PREFERENCE_KEYS),
+      'PREFERENCE_KEYS 里不得再有 startMinimized / startMinimizedTouched',
+    )
+    assert(
+      typeof prefs.readStartMinimized === 'undefined' &&
+        typeof prefs.setStartMinimized === 'undefined' &&
+        typeof prefs.markStartMinimizedTouched === 'undefined',
+      'readStartMinimized / setStartMinimized / markStartMinimizedTouched 必须已删除',
+    )
+    assert(
+      typeof autostart.markStartMinimizedTouched === 'undefined' &&
+        typeof autostart.AUTOSTART_MINIMIZED_COMBINATION === 'undefined',
+      'autostart 模块不得再导出组合行为相关符号',
+    )
   })
-})
 
-await check('组合行为：用户**亲自设过** → 尊重选择，不被自动改写', async () => {
-  await withStoredPrefs(
-    [
-      [prefs.PREFERENCE_KEYS.startMinimizedTouched, 'true'],
-      [prefs.PREFERENCE_KEYS.startMinimized, 'false'],
-    ],
-    () => {
-      autostart.markStartMinimizedTouched() // 确保标记为 true（幂等）
-      const plugin = fakePlugin(false)
-      return autostart
-        .applyAutostart(true, plugin.api)
-        .then((result) => {
-          assertEqual(result.autoEnabledStartMinimized, false, '不应触发组合行为')
-          assertEqual(prefs.readStartMinimized(), false, '保留用户设定的 false')
-        })
-    },
-  )
-})
-
-await check('组合行为：关闭自启时不动「最小化到托盘」', async () => {
-  await withStoredPrefs([[prefs.PREFERENCE_KEYS.startMinimized, 'true']], async () => {
+  // 关闭自启同样不得触碰任何「最小化」偏好
+  await withStoredPrefs([[prefs.PREFERENCE_KEYS.autostart, 'true']], async (store) => {
     const plugin = fakePlugin(true)
     const result = await autostart.applyAutostart(false, plugin.api)
     assertEqual(result.ok, true, '系统侧成功')
-    assertEqual(result.autoEnabledStartMinimized, false, '关闭场景不触发组合行为')
-    assertEqual(prefs.readStartMinimized(), true, '原有偏好保持不变')
+    assertEqual(store.get(prefs.PREFERENCE_KEYS.autostart), 'false', '用户意图已落库为关闭')
+    const leaked = [...store.keys()].filter((key) => key !== prefs.PREFERENCE_KEYS.autostart)
+    assertEqual(leaked.join(','), '', `关闭场景也不得写其它键（实际：${leaked.join(',') || '无'}）`)
   })
 })
 
@@ -1502,6 +1528,104 @@ await check('UI 展示的系统状态必须来自 isEnabled() 读取，而不是
   })
 }
 
+/* ------------------------------------------------------------------ */
+/* K. 磁贴吸附开关（t52）                                                */
+/*    需求原话：「增加开启/关闭磁贴吸附的功能」。                        */
+/*    权威源与 §4.13 的 closeToTray 一致：持久化在 localStorage，        */
+/*    行为在 Rust（进程内 AtomicBool），启动时与变更时由前端下发。       */
+/* ------------------------------------------------------------------ */
+
+group('K. 磁贴吸附开关（t52）')
+
+/** 读仓库内文件（读不到返回空串，让断言以"缺少 X"失败而不是抛异常） */
+const readT52 = (rel) => {
+  try {
+    return readFileSync(path.join(projectRoot, rel), 'utf8')
+  } catch {
+    return ''
+  }
+}
+
+/** 去注释后用于**正向**断言：注释里提到某标识符不算实现 */
+const stripT52 = (source) =>
+  source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '')
+
+/**
+ * 取锚点之后第一段**花括号配平**的代码块。
+ * 刻意不用「接下来 N 个字符」：那种写法在文件被重排后会静默失配（本项目踩过）。
+ */
+const blockAfter = (source, anchor) => {
+  const start = source.indexOf(anchor)
+  if (start < 0) return null
+  const open = source.indexOf('{', start)
+  if (open < 0) return null
+  let depth = 0
+  for (let i = open; i < source.length; i += 1) {
+    if (source[i] === '{') depth += 1
+    else if (source[i] === '}') {
+      depth -= 1
+      if (depth === 0) return source.slice(open, i + 1)
+    }
+  }
+  return null
+}
+
+await check('t52：偏好键 / 默认值 / 读写函数齐全（localStorage 是持久化权威）', () => {
+  const prefs = readT52('src/lib/appPreferences.ts')
+  assert(prefs.length > 0, 'appPreferences.ts 读不到（防断言空跑）')
+  assert(/tileSnap: 'zhijian\.tileSnap'/.test(prefs), 'PREFERENCE_KEYS 缺 tileSnap')
+  assert(
+    /tileSnap: true,/.test(prefs),
+    '默认值必须是 true —— 默认关闭等于"升级后吸附突然没了"，老用户会当成故障',
+  )
+  assert(/export function readTileSnap\(\): boolean/.test(prefs), '缺 readTileSnap')
+  assert(/export function writeTileSnap\(value: boolean\): void/.test(prefs), '缺 writeTileSnap')
+  assert(/\n    setTileSnap,/.test(prefs), 'useAppPreferences 未把 setTileSnap 暴露给面板')
+})
+
+await check('t52：设置面板有开关，且变更时**两条路都走**（落库 + 下发 Rust）', () => {
+  const panel = stripT52(readT52('src/features/settings/SettingsPanel.tsx'))
+  assert(panel.length > 0, 'SettingsPanel.tsx 读不到')
+  assert(/data-zj="tile-snap-row"/.test(panel), '缺开关行标记 data-zj="tile-snap-row"')
+  assert(/data-zj="tile-snap-toggle"/.test(panel), '缺开关控件标记 data-zj="tile-snap-toggle"')
+  assert(/preferences\.setTileSnap\(value\)/.test(panel), '开关必须落库，否则重启就忘')
+  assert(
+    /syncTileSnapPreference\(value\)/.test(panel),
+    '开关必须同时下发 Rust —— 只落库会出现"改了不生效"的假开关',
+  )
+  assert(/data-zj="tile-snap-drift"/.test(panel), '缺"后端值≠本机偏好"的漂移提示（诊断用）')
+})
+
+await check('t52：App 启动流程会下发一次（否则重启后用户关掉的开关被悄悄忘记）', () => {
+  const app = readT52('src/App.tsx')
+  assert(app.length > 0, 'App.tsx 读不到')
+  /**
+   * 锚点必须带那段注释的分隔线：`启动流程` 这四个字在 App.tsx 里出现多次
+   * （文件头说明、ref 注释…），裸词锚点会落在 import 的 `{` 上、静默取到错误的块
+   * —— 这条断言第一次就是这么假失败/假通过的（实测：取到的块里没有下发调用）。
+   */
+  const boot = blockAfter(app, '/* ------------------------------ 启动流程')
+  assert(Boolean(boot), '在 App.tsx 里找不到「启动流程」那段 effect（锚点失效）')
+  assert(
+    // ⚠️ 必须先对**这段块**去注释再匹配。变异测试抓到过这个漏洞：
+    // 直接匹配原文时，把调用注释掉（`// void syncTileSnapPreference()`）
+    // 仍然会被判为通过 —— 断言命中的是注释，不是代码。
+    /syncTileSnapPreference\(\)/.test(stripT52(boot ?? '')),
+    '启动流程里没有下发磁贴吸附偏好：Rust 是进程内状态，不下发就会回落默认 true',
+  )
+
+  const module = stripT52(readT52('src/features/settings/tileSnap.ts'))
+  assert(/export async function syncTileSnapPreference/.test(module), '缺下发函数 syncTileSnapPreference')
+  assert(/isTileSnapDrifted/.test(module), '缺漂移判定（面板靠它提示"未生效"）')
+  assert(
+    /console\.warn\(/.test(module) && !/throw new Error/.test(module),
+    '下发失败必须只 warn（返回 synced:false），不得把设置面板/启动流程炸掉',
+  )
+
+  const tauri = stripT52(readT52('src/lib/tauri.ts'))
+  assert(/setTileSnap: 'cmd_set_tile_snap'/.test(tauri), 'COMMANDS 缺 setTileSnap')
+  assert(/tileSnapEnabled: 'cmd_tile_snap_enabled'/.test(tauri), 'COMMANDS 缺 tileSnapEnabled')
+})
 /* ---------- 5) 汇总 ---------- */
 
 const failed = results.filter((item) => !item.ok)

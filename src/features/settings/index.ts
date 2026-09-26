@@ -87,10 +87,8 @@ export {
   AUTOSTART_UNAVAILABLE_HINT,
   applyAutostart,
   autostartDrift,
-  markStartMinimizedTouched,
   readSystemAutostart,
   setSystemAutostart,
-  type AutostartApplyResult,
   type AutostartDrift,
   type AutostartSystemState,
   type AutostartToggleResult,
@@ -109,6 +107,14 @@ export {
   type CloseToTrayNoticeOptions,
   type PreferenceSyncResult,
 } from './closeToTray'
+export {
+  TILE_SNAP_HINT,
+  TILE_SNAP_LABEL,
+  isTileSnapDrifted,
+  readRustTileSnap,
+  syncTileSnapPreference,
+  type TileSnapSyncResult,
+} from './tileSnap'
 export {
   BACKUP_FORMAT_VERSION,
   BACKUP_KIND,

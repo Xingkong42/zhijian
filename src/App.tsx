@@ -27,6 +27,7 @@ import {
   CloseToTrayNotice,
   importNotesFromDialog,
   syncShortcutBindingsOnStartup,
+  syncTileSnapPreference,
 } from '@/features/settings'
 import {
   closeTileForNote,
@@ -244,6 +245,14 @@ function AppShell() {
             variant: 'warning',
           })
         })
+        // 5) t52：把**磁贴吸附**开关下发给 Rust —— 启动时补一次。
+        //
+        // 为什么必须有：Rust 侧 `tiles::TILE_SNAP` 是进程内 `AtomicBool`（默认 true），
+        // 它读不到 WebView 的 localStorage ⇒ 不下发的话，用户上次关掉的吸附开关
+        // 重启后会被悄悄忘掉（表现为「我明明关了，怎么又开始吸」）。
+        // 与上面快捷键、以及 §4.13「关闭到托盘偏好启动时同步」是同一模式：
+        // **localStorage 是权威，启动即下发**。这里刻意不 await：失败只 warn，不阻塞启动。
+        void syncTileSnapPreference()
       } catch (error) {
         if (cancelled) return
         // 浏览器预览模式（pnpm dev）没有 SQLite，这不是故障：明确区分，避免误报启动失败

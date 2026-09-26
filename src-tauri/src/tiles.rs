@@ -22,6 +22,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -42,6 +43,29 @@ pub const TILE_MIN_HEIGHT: f64 = 120.0;
 
 /// 多枚磁贴的层叠偏移（避免全部重叠在同一位置）
 const TILE_CASCADE_STEP: f64 = 28.0;
+
+/// t52：「磁贴吸附」总开关（进程内 `AtomicBool`，默认 `true` = 启用）。
+///
+/// 与 `window::CLOSE_TO_TRAY` 同一套路（§4.13）：**持久化真相在前端 localStorage**
+/// （`zhijian.tileSnap`），Rust 只是行为副本 —— Rust 读不到 WebView 的 localStorage，
+/// 所以启动时与开关变更时都由前端下发（`src/features/settings/tileSnap.ts`）。
+///
+/// 关闭后的语义（用户需求：「增加开启/关闭磁贴吸附的功能」）：
+///  - **不再吸附**：`apply_snap_after_move_inner` 直接返回 ⇒ 拖动不会自动贴到邻居边上；
+///  - **不再成组/跟随**：`propagate_group_move` 直接返回 ⇒ 拖一枚不会带着同组其它磁贴走；
+///  - **已有的组号一律保留**：重新打开后原来的组继续有效 ——
+///    这是"开关"而不是"清空"，关一次不该毁掉用户已经摆好的布局。
+static TILE_SNAP: AtomicBool = AtomicBool::new(true);
+
+/// 「磁贴吸附」当前是否启用
+pub fn tile_snap_enabled() -> bool {
+    TILE_SNAP.load(Ordering::SeqCst)
+}
+
+/// 设置「磁贴吸附」开关（IPC 命令与单测共用）
+pub fn set_tile_snap_preference(enabled: bool) {
+    TILE_SNAP.store(enabled, Ordering::SeqCst);
+}
 
 /// 几何落盘的**静默期**：最后一次移动/缩放之后等这么久才写磁盘。
 ///
@@ -994,6 +1018,10 @@ fn move_window_programmatically<R: Runtime>(app: &AppHandle<R>, note_id: &str, x
 /// 每次登记都会**推进该成员的记录**（`remember_geometry`），这样下一次 `Moved`
 /// 算出的 delta 是基于最新记录的增量、可以正确累加（否则连续登记会丢位移）。
 fn propagate_group_move<R: Runtime>(app: &AppHandle<R>, note_id: &str, delta: (f64, f64)) {
+    // t52：吸附开关关闭 ⇒ 不传播位移（磁贴各自独立移动，不会被同组带着走）
+    if !tile_snap_enabled() {
+        return;
+    }
     // 死区：1px 级的抖动不带着整组抖
     if delta.0.abs() < MOVE_DEAD_ZONE && delta.1.abs() < MOVE_DEAD_ZONE {
         return;
@@ -1134,6 +1162,10 @@ fn apply_snap_after_move_inner<R: Runtime>(app: &AppHandle<R>) {
     let Some(moved_id) = state.last_moved.lock().ok().and_then(|mut slot| slot.take()) else {
         return;
     };
+    // t52：吸附开关关闭 ⇒ 到此为止（`last_moved` 已在上面取走，不会留到下次误触发）
+    if !tile_snap_enabled() {
+        return;
+    }
     let active: Vec<(String, TileGeometry)> = active_tile_ids(app)
         .into_iter()
         .map(|id| {
@@ -1384,9 +1416,44 @@ pub async fn cmd_ungroup_tile<R: Runtime>(
     ungroup_tile_impl(&app, note_id.trim())
 }
 
+/// t52：下发「磁贴吸附」开关（参数 `{ enabled: boolean }`，返回**生效后**的值）
+///
+/// 返回生效值而不是 `()`：前端可以据此对账（与 `cmd_set_close_to_tray` 同一约定）。
+#[tauri::command]
+pub fn cmd_set_tile_snap(enabled: bool) -> bool {
+    set_tile_snap_preference(enabled);
+    tile_snap_enabled()
+}
+
+/// t52：读取「磁贴吸附」当前值（启动对账 / 诊断用）
+#[tauri::command]
+pub fn cmd_tile_snap_enabled() -> bool {
+    tile_snap_enabled()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// t52：吸附开关**默认开启** —— 用户没动过设置时必须保持一直以来的行为
+    #[test]
+    fn tile_snap_defaults_to_enabled() {
+        // 其它用例可能改过这个进程级开关：先恢复默认再断言
+        if !tile_snap_enabled() {
+            set_tile_snap_preference(true);
+        }
+        assert!(tile_snap_enabled(), "默认应启用（否则用户会以为「吸附坏了」）");
+    }
+
+    /// t52：开关可读写，且**命令返回的是生效后的值**（不是"假设成功"）
+    #[test]
+    fn tile_snap_toggle_is_readable() {
+        assert!(!cmd_set_tile_snap(false), "设为关闭后应回读 false");
+        assert!(!tile_snap_enabled());
+        assert!(cmd_set_tile_snap(true), "设为开启后应回读 true");
+        assert!(cmd_tile_snap_enabled(), "读取命令应返回当前值");
+        set_tile_snap_preference(true); // 恢复默认，避免影响其它用例
+    }
 
     #[test]
     fn label_round_trips() {

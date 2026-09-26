@@ -125,6 +125,11 @@ export const COMMANDS = {
   closeToTrayEnabled: 'cmd_close_to_tray_enabled',
   /** t17：原子重建全局快捷键绑定（参数 `{ bindings: ShortcutBinding[] }`） */
   syncGlobalShortcuts: 'cmd_sync_global_shortcuts',
+  /* ---- t52：磁贴吸附开关 ---- */
+  /** 下发「磁贴吸附」开关（参数 `{ enabled: boolean }`，返回生效后的 `boolean`） */
+  setTileSnap: 'cmd_set_tile_snap',
+  /** 读取当前「磁贴吸附」开关（诊断 / 启动对账用） */
+  tileSnapEnabled: 'cmd_tile_snap_enabled',
   /* ---- t19 桌面便签磁贴 ---- */
   /** 钉住/取消磁贴（参数 `{ noteId: string }`，返回**新状态** `boolean`：true = 已钉住） */
   toggleTile: 'cmd_toggle_tile',
@@ -218,6 +223,30 @@ export async function readCloseToTrayFromRust(): Promise<boolean | null> {
   if (!isTauri) return null
   const { invoke } = await import('@tauri-apps/api/core')
   return invoke<boolean>(COMMANDS.closeToTrayEnabled)
+}
+
+/* --------------------------- t52：磁贴吸附开关 --------------------------- */
+
+/**
+ * 下发「磁贴吸附」开关给 Rust（`tiles::TILE_SNAP`）。
+ *
+ * 调用时机与 `setCloseToTray` 相同（**两者都必须**）：
+ *  1. 应用启动时同步一次（Rust 读不到 WebView 的 localStorage）；
+ *  2. 设置面板开关变更时立即下发。
+ *
+ * 非 Tauri 环境静默返回 false，不抛错。
+ */
+export async function setTileSnap(enabled: boolean): Promise<boolean> {
+  if (!isTauri) return false
+  const { invoke } = await import('@tauri-apps/api/core')
+  return invoke<boolean>(COMMANDS.setTileSnap, { enabled })
+}
+
+/** 读取 Rust 侧当前的「磁贴吸附」值（诊断 / 与 localStorage 对账用） */
+export async function readTileSnapFromRust(): Promise<boolean | null> {
+  if (!isTauri) return null
+  const { invoke } = await import('@tauri-apps/api/core')
+  return invoke<boolean>(COMMANDS.tileSnapEnabled)
 }
 
 /**

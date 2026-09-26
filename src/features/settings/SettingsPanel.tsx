@@ -18,7 +18,7 @@
  * 颜色/圆角/阴影只用语义 token 类；类名一律经 `cn()` 合并。
  */
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
   Check,
@@ -44,7 +44,6 @@ import {
   CONTENT_FONT_SIZE_OPTIONS,
   SORT_BY_OPTIONS,
   effectiveContentFontSizePx,
-  readStartMinimized,
   useAppPreferences,
   type ContentFontSize,
   type NoteSortBy,
@@ -107,9 +106,15 @@ import {
 import {
   AUTOSTART_UNAVAILABLE_HINT,
   applyAutostart,
-  markStartMinimizedTouched,
   readSystemAutostart,
 } from './autostart'
+import {
+  TILE_SNAP_HINT,
+  TILE_SNAP_LABEL,
+  isTileSnapDrifted,
+  readRustTileSnap,
+  syncTileSnapPreference,
+} from './tileSnap'
 import { ModeToggle } from './ModeToggle'
 import { ThemePicker } from './ThemePicker'
 
@@ -143,20 +148,6 @@ const SCROLL_MAX_HEIGHT_COLUMN = 'h-full min-h-0'
  * 即回到已演练过的降级形态（禁用 + 说明条），无需再改其它行。
  */
 const CLOSE_TO_TRAY_TOGGLE_ENABLED = true
-
-/**
- * 「启动后最小化到托盘」开关是否可交互（t17）。
- *
- * `true`：按 architect 定稿的**零 Rust 改动**路径实现 —— 偏好在 localStorage（前端唯一可读），
- * 由前端在**初始化完成后**调 `getCurrentWindow().hide()`（`core:window:allow-hide` 已在 capabilities 中）。
- * 之所以不是「Rust 启动时就不显示」：`window::init()` 必然早于 WebView 加载，
- * 那个时间窗不存在；而且让 Rust 读偏好就得落一份 Rust 侧偏好文件，正是 §4.13 否决过的双真相源。
- *
- * 代价（已如实写进 UI 文案）：窗口会**短暂闪现**约 1 秒（WebView 启动耗时），随后收起。
- */
-const START_MINIMIZED_SUPPORTED = true
-
-const START_MINIMIZED_UNAVAILABLE_REASON = ''
 
 /**
  * 「更换数据目录」是否可用。
@@ -196,8 +187,6 @@ export interface SettingsPanelExtendedProps extends Partial<SettingsPanelProps> 
   className?: string
   /** 默认排序变化时的额外回调（外层持久化 / 重排列表用） */
   onDefaultSortChange?: (sortBy: NoteSortBy) => void
-  /** 「启动时最小化」变化时的额外回调（外层若实现该能力可据此下发） */
-  onToggleStartMinimized?: (value: boolean) => void
   /** 导入完成后的额外回调（外层刷新列表用） */
   onDataImported?: () => void
   /**
@@ -218,13 +207,6 @@ export interface SettingsPanelExtendedProps extends Partial<SettingsPanelProps> 
    * 传 `null` 表示「已知无法对账」（例如浏览器预览），此时不显示告警。
    */
   rustCloseToTray?: boolean | null
-  /**
-   * 「启动时最小化到托盘」开关是否可交互（t17）。
-   *
-   * 由集成层依据 Rust 是否提供该能力决定：`false` 时开关**禁用并说明**，
-   * 绝不留「改了没反应」的假开关（与 t6 的 `CLOSE_TO_TRAY_TOGGLE_ENABLED` 同一套路）。
-   */
-  startMinimizedSupported?: boolean
   /**
    * 「更换数据目录」是否被支持（t17）。t15 的 vault 根是常量且无换根入口，
    * 因此默认 `false`：按钮禁用 + 给出建议，而不是做一个点了没反应的入口。
@@ -347,7 +329,6 @@ export function SettingsPanel(props: SettingsPanelExtendedProps = {}) {
     onDataImported,
     onIndexRebuilt,
     onDefaultSortChange,
-    onToggleStartMinimized,
     onToggleCloseToTray,
     onSetTheme,
     onSetMode,
@@ -380,7 +361,6 @@ export function SettingsPanel(props: SettingsPanelExtendedProps = {}) {
   const newNoteShortcut = shortcutProp ?? GLOBAL_SHORTCUTS.newNote
   const open = standalone ? true : (openProp ?? settingsOpen)
   /** t17：能力开关可被集成层覆盖（后端就绪后无需改组件，只传 prop） */
-  const startMinimizedSupported = props.startMinimizedSupported ?? START_MINIMIZED_SUPPORTED
   const relocateEnabled = props.relocateSupported ?? RELOCATE_SUPPORTED
   const relocateHint = relocateSupport()
   const handleSetTheme = useCallback(
@@ -489,53 +469,43 @@ export function SettingsPanel(props: SettingsPanelExtendedProps = {}) {
     }
   }, [props.rustCloseToTray, closeToTray])
 
-  // 「启动后最小化」：本组件常驻在应用根节点，因此它的**首次挂载**就是
-  // 「应用初始化基本完成」的时机（面板本身在 Provider 树内、不参与条件渲染）。
-  // 只跑一次，且用户在设置页时绝不隐藏（否则会把自己藏起来，用户以为崩了）。
-  const startMinimizedHandled = useRef(false)
-  useEffect(() => {
-    if (startMinimizedHandled.current) return
-    startMinimizedHandled.current = true
-    if (!isTauri || !startMinimizedSupported) return
-    if (!readStartMinimized()) return
-    if (useUiStore.getState().settingsOpen) return
-    void (async () => {
-      try {
-        const { getCurrentWindow } = await import('@tauri-apps/api/window')
-        await getCurrentWindow().hide()
-      } catch (error) {
-        console.warn('[纸笺] 启动后最小化失败（窗口保持显示）：', error)
-      }
-    })()
-  }, [startMinimizedSupported])
-
-  /** 开关变更时把偏好下发 + 立即执行一次（开启后立刻收起窗口，不必等下次启动） */
-  const handleStartMinimizedChange = useCallback(
-    (value: boolean) => {
-      preferences.setStartMinimized(value)
-      // t38：用户**亲自**设过 ⇒ 记标记，此后「开机自启」的组合行为不再自动改写它
-      markStartMinimizedTouched()
-      onToggleStartMinimized?.(value)
-      if (!value || !isTauri) return
-      void (async () => {
-        try {
-          const { getCurrentWindow } = await import('@tauri-apps/api/window')
-          await getCurrentWindow().hide()
-        } catch (error) {
-          notify?.({
-            title: '最小化到托盘失败',
-            description: error instanceof Error ? error.message : String(error),
-            variant: 'warning',
-          })
-        }
-      })()
-    },
-    [preferences, onToggleStartMinimized, notify],
-  )
-
   /** 是否出现「后端行为值 ≠ 本机偏好」的漂移（仅诊断展示，不自动改写后端） */
   const closeToTrayDrifted =
     CLOSE_TO_TRAY_TOGGLE_ENABLED && isPreferenceDrifted(rustValue, closeToTray)
+
+  /* ---------------------------- t52：磁贴吸附 ---------------------------- */
+
+  /** Rust 侧当前的「磁贴吸附」值（null = 没读到 / 无法对账，此时不显示告警） */
+  const [rustTileSnap, setRustTileSnap] = useState<boolean | null>(null)
+
+  // 打开面板时与 Rust 对账一次；依赖里的 `preferences.tileSnap` 很关键 ——
+  // 开关一动就重新对账，否则漂移提示会滞后半拍（与上面 closeToTray 同一处细节）。
+  useEffect(() => {
+    if (!open || !isTauri) return
+    let cancelled = false
+    void (async () => {
+      const value = await readRustTileSnap()
+      if (!cancelled) setRustTileSnap(value)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [open, preferences.tileSnap])
+
+  /** t52：切换吸附开关 —— 两条路都走：localStorage（持久化权威）+ Rust（行为权威） */
+  const handleTileSnapChange = useCallback(
+    (value: boolean) => {
+      preferences.setTileSnap(value)
+      void (async () => {
+        const result = await syncTileSnapPreference(value)
+        if (result.synced) setRustTileSnap(result.value)
+      })()
+    },
+    [preferences],
+  )
+
+  /** 吸附开关是否出现「后端行为值 ≠ 本机偏好」（仅诊断展示，不自动改写后端） */
+  const tileSnapDrifted = isTileSnapDrifted(rustTileSnap, preferences.tileSnap)
 
   /* ------------------- t17：快捷键同步 / 数据位置 / 索引 ------------------- */
 
@@ -780,7 +750,7 @@ export function SettingsPanel(props: SettingsPanelExtendedProps = {}) {
     }
   }, [open])
 
-  /** 切换开机自启：落库意图 → 调系统 API → **回读校验** → 组合行为 */
+  /** 切换开机自启：落库意图 → 调系统 API → **回读校验**（以回读值展示，不假装成功） */
   const handleAutostartChange = useCallback(
     async (enabled: boolean) => {
       setAutostartBusy(true)
@@ -800,9 +770,7 @@ export function SettingsPanel(props: SettingsPanelExtendedProps = {}) {
         setAutostartUnavailable(null)
         notify?.({
           title: enabled ? '已开启开机自启' : '已关闭开机自启',
-          description: result.autoEnabledStartMinimized
-            ? '已同时设为「开机启动时最小化到托盘」，避免开机时弹出窗口打扰。'
-            : '已回读系统状态确认生效。',
+          description: '已回读系统状态确认生效。',
           variant: 'success',
         })
       } catch (error) {
@@ -1022,30 +990,26 @@ export function SettingsPanel(props: SettingsPanelExtendedProps = {}) {
               </p>
             ) : null}
 
-            {/* t17：启动时最小化到托盘（后端未提供该能力时禁用 + 说明，不留假开关） */}
-            <div className="flex items-start justify-between gap-4">
+            {/* ---------------- t52：磁贴吸附 ---------------- */}
+            <div data-zj="tile-snap-row" className="flex items-start justify-between gap-4">
               <div className="min-w-0 flex-1">
-                <p className="text-ui text-text">启动后最小化到系统托盘</p>
-                <p className="text-meta text-muted">
-                  开启后启动纸笺会立即把窗口收进托盘（仅在托盘常驻）；用托盘图标或全局快捷键唤起。
-                  这同时决定<strong className="font-medium text-text">开机自启</strong>
-                  时的行为（两者共用同一项，避免出现互相矛盾的重复开关）。
-                  窗口在 WebView 加载完成前会有约 1 秒的短暂显示，这是「不把偏好落到后端」的代价（§4.13）。
-                </p>
+                <p className="text-ui text-text">{TILE_SNAP_LABEL}</p>
+                <p className="text-meta text-muted">{TILE_SNAP_HINT}</p>
               </div>
               <Switch
-                checked={preferences.startMinimized}
-                disabled={!startMinimizedSupported}
-                label="启动后最小化到系统托盘"
-                onCheckedChange={handleStartMinimizedChange}
+                data-zj="tile-snap-toggle"
+                checked={preferences.tileSnap}
+                label={TILE_SNAP_LABEL}
+                onCheckedChange={handleTileSnapChange}
               />
             </div>
-            {!startMinimizedSupported ? (
+            {tileSnapDrifted ? (
               <p
-                data-zj="start-minimized-pending"
-                className="rounded-zj border border-border bg-surface-2 px-3 py-2 text-meta text-muted"
+                data-zj="tile-snap-drift"
+                className="rounded-zj border border-accent bg-selection px-3 py-2 text-meta text-text"
               >
-                {START_MINIMIZED_UNAVAILABLE_REASON}
+                ⚠️ 检测到后端行为值与本机偏好不一致（后端 {String(rustTileSnap)}，本机{' '}
+                {String(preferences.tileSnap)}）：请重新切换一次本开关以重新下发。
               </p>
             ) : null}
 

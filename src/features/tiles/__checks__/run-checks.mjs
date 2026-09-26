@@ -714,6 +714,38 @@ async function loadTsxModule(modulePath) {
     '用 outer_size 会有 16px 系统偏差（Windows 无边框窗口的不可见边框）：吸附判定整体偏移、\n' +
       '     阈值 2px 下永不命中（用户实测「为什么不吸附了」），且尺寸每次重启累积 +16px',
   )
+  /* ------------------------------ t52：吸附开关 ------------------------------ */
+
+  check(
+    't52：吸附开关的 gate 必须在**两条**入口上（吸附判定 + 组位移传播）',
+    (() => {
+      const snapBody = bodyAfter(tilesRs, /fn apply_snap_after_move_inner\s*<[^>]*>\s*\([^)]*\)[^{]*\{/)
+      const propagateBody = bodyAfter(tilesRs, /fn propagate_group_move\s*<[^>]*>\s*\([^)]*\)[^{]*\{/)
+      return (
+        Boolean(snapBody) &&
+        Boolean(propagateBody) &&
+        /!tile_snap_enabled\(\)/.test(snapBody ?? '') &&
+        /!tile_snap_enabled\(\)/.test(propagateBody ?? '')
+      )
+    })(),
+    '只 gate 一处会留下半开状态：要么"关了还在吸附"，要么"关了仍被同组带着走"',
+  )
+  check(
+    't52：开关是可读写的进程内状态（默认开启 + 命令返回**生效值**）',
+    /static TILE_SNAP:\s*AtomicBool\s*=\s*AtomicBool::new\(true\)/.test(tilesRs) &&
+      /pub fn set_tile_snap_preference\(enabled: bool\)/.test(tilesRs) &&
+      /pub fn cmd_set_tile_snap\(enabled: bool\) -> bool\s*\{[\s\S]{0,200}?tile_snap_enabled\(\)/.test(tilesRs),
+    '命令必须回读生效值：返回 () 时前端只能"假设成功"（本项目栽过假成功的坑）',
+  )
+  check(
+    't52：两个命令都已在 lib.rs 注册（否则前端 invoke 直接失败）',
+    (() => {
+      const libRs = read('src-tauri/src/lib.rs')
+      return /tiles::cmd_set_tile_snap,/.test(libRs) && /tiles::cmd_tile_snap_enabled,/.test(libRs)
+    })(),
+    'contract 门禁做的是静态双向核对；这里再钉一遍，缺注册时真机 IPC 会直接报错',
+  )
+
   check(
     't50：吸附判定窗口必须与落盘去抖**分开**（不能都用 3 秒）',
     /const SNAP_QUIET_PERIOD:\s*Duration\s*=\s*Duration::from_millis\(400\);/.test(tilesRs) &&

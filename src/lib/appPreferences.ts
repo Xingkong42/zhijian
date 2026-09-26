@@ -6,7 +6,7 @@
  * 一律存 **localStorage**（key 前缀 `zhijian.`），**禁止落 SQLite**。
  * 主题自身已由 `themeStore` 用 `zj:theme` 承担，本文件承担设置面板其余偏好：
  *   - `zhijian.closeToTray`     关闭按钮是否隐藏到托盘（后台常驻）
- *   - `zhijian.startMinimized`  启动时是否直接最小化到托盘（t17）
+ *   - `zhijian.tileSnap`        桌面磁贴是否吸附成组（t52）
  *   - `zhijian.defaultSort`     笔记列表默认排序
  *   - `zhijian.contentFontSize` 正文/预览字号档位（t17）
  *   - `zhijian.shortcuts`       自定义全局快捷键（t17，JSON）
@@ -35,8 +35,6 @@ export interface WindowBounds {
 export interface AppPreferences {
   /** 关闭按钮是否「隐藏到托盘」；false = 真正退出（托盘不可用时自动退化为 false） */
   closeToTray: boolean
-  /** 启动时是否直接最小化到托盘（不弹主窗口） */
-  startMinimized: boolean
   /**
    * 用户「希望」开机自动启动（t38）。
    *
@@ -47,24 +45,24 @@ export interface AppPreferences {
    *  ② 与系统状态对账后给出"期望 vs 实际"的提示。
    */
   autostart: boolean
-  /**
-   * 用户是否**亲自**设定过 `startMinimized`（t38 组合行为用）。
-   *
-   * 组合行为：开启「开机自启」时，若用户从未设过该项，则**自动置为 true**
-   * （开机自启默认最小化到托盘、不打扰用户）；若用户已明确设过，**尊重其选择**。
-   * 不新增第二个含义重复的开关，而是复用同一个偏好 + 一个"是否被显式设过"的标记。
-   */
-  startMinimizedTouched: boolean
   /** 笔记列表默认排序 */
   defaultSort: NoteSortBy
   /** 正文/预览字号档位 */
   contentFontSize: ContentFontSize
+  /**
+   * 桌面磁贴是否**吸附成组**（t52）。
+   *
+   * 权威源约定与 `closeToTray` 完全一致：**持久化 = 前端 localStorage**（本字段），
+   * **行为 = Rust**（`tiles::tile_snap_enabled()`，启动时与开关变更时由前端下发）。
+   * 关闭后：拖动磁贴不再自动贴合，也不会被同组磁贴带着走；
+   * **已有的组号保留** —— 关一次开关不该毁掉用户已经摆好的布局。
+   */
+  tileSnap: boolean
 }
 
 export const PREFERENCE_KEYS = {
   closeToTray: 'zhijian.closeToTray',
-  startMinimized: 'zhijian.startMinimized',
-  startMinimizedTouched: 'zhijian.startMinimizedTouched',
+  tileSnap: 'zhijian.tileSnap',
   autostart: 'zhijian.autostart',
   defaultSort: 'zhijian.defaultSort',
   contentFontSize: 'zhijian.contentFontSize',
@@ -75,8 +73,8 @@ export const PREFERENCE_KEYS = {
 
 export const APP_PREFERENCE_DEFAULTS: AppPreferences = {
   closeToTray: true,
-  startMinimized: false,
-  startMinimizedTouched: false,
+  // 默认吸附：这是磁贴一直以来的行为，改成默认关闭会让老用户以为功能坏了
+  tileSnap: true,
   autostart: false,
   defaultSort: 'order',
   contentFontSize: 'medium',
@@ -144,14 +142,7 @@ export function readPreferences(): AppPreferences {
   const rawFont = readRaw(PREFERENCE_KEYS.contentFontSize)
   return {
     closeToTray: readBool(PREFERENCE_KEYS.closeToTray, APP_PREFERENCE_DEFAULTS.closeToTray),
-    startMinimized: readBool(
-      PREFERENCE_KEYS.startMinimized,
-      APP_PREFERENCE_DEFAULTS.startMinimized,
-    ),
-    startMinimizedTouched: readBool(
-      PREFERENCE_KEYS.startMinimizedTouched,
-      APP_PREFERENCE_DEFAULTS.startMinimizedTouched,
-    ),
+    tileSnap: readBool(PREFERENCE_KEYS.tileSnap, APP_PREFERENCE_DEFAULTS.tileSnap),
     autostart: readBool(PREFERENCE_KEYS.autostart, APP_PREFERENCE_DEFAULTS.autostart),
     defaultSort: isNoteSortBy(rawSort) ? rawSort : APP_PREFERENCE_DEFAULTS.defaultSort,
     contentFontSize: isContentFontSize(rawFont) ? rawFont : APP_PREFERENCE_DEFAULTS.contentFontSize,
@@ -162,13 +153,9 @@ export function readCloseToTray(): boolean {
   return readPreferences().closeToTray
 }
 
-export function readStartMinimized(): boolean {
-  return readPreferences().startMinimized
-}
-
-/** 用户是否明确设定过 `startMinimized`（组合行为据此决定是否自动置 true） */
-export function readStartMinimizedTouched(): boolean {
-  return readPreferences().startMinimizedTouched
+/** 桌面磁贴是否吸附成组（t52；行为侧见 `features/settings/tileSnap.ts`） */
+export function readTileSnap(): boolean {
+  return readPreferences().tileSnap
 }
 
 /** 用户「希望」的开机自启（**非**系统事实来源，事实以 `isEnabled()` 为准） */
@@ -188,17 +175,12 @@ export function writeCloseToTray(value: boolean): void {
   writeRaw(PREFERENCE_KEYS.closeToTray, value ? 'true' : 'false')
 }
 
+export function writeTileSnap(value: boolean): void {
+  writeRaw(PREFERENCE_KEYS.tileSnap, value ? 'true' : 'false')
+}
+
 export function writeAutostartPreference(value: boolean): void {
   writeRaw(PREFERENCE_KEYS.autostart, value ? 'true' : 'false')
-}
-
-/** 标记用户已亲自设定过 `startMinimized`（此后组合行为不再自动改写它） */
-export function writeStartMinimizedTouched(value: boolean): void {
-  writeRaw(PREFERENCE_KEYS.startMinimizedTouched, value ? 'true' : 'false')
-}
-
-export function writeStartMinimized(value: boolean): void {
-  writeRaw(PREFERENCE_KEYS.startMinimized, value ? 'true' : 'false')
 }
 
 export function writeDefaultSort(value: NoteSortBy): void {
@@ -393,7 +375,8 @@ if (typeof window !== 'undefined') {
 export function useAppPreferences(): AppPreferences & {
   setCloseToTray: (value: boolean) => void
   toggleCloseToTray: () => void
-  setStartMinimized: (value: boolean) => void
+  /** t52：只落库磁贴吸附偏好；**行为下发**见 `features/settings/tileSnap.ts` */
+  setTileSnap: (value: boolean) => void
   setDefaultSort: (value: NoteSortBy) => void
   setContentFontSize: (value: ContentFontSize) => void
   /** 只落库「用户希望的开机自启」；**系统侧设置**请用 features/settings/autostart.ts */
@@ -415,8 +398,8 @@ export function useAppPreferences(): AppPreferences & {
     emit()
   }, [])
 
-  const setStartMinimized = useCallback((value: boolean) => {
-    writeStartMinimized(value)
+  const setTileSnap = useCallback((value: boolean) => {
+    writeTileSnap(value)
     emit()
   }, [])
 
@@ -441,7 +424,7 @@ export function useAppPreferences(): AppPreferences & {
     ...preferences,
     setCloseToTray,
     toggleCloseToTray,
-    setStartMinimized,
+    setTileSnap,
     setDefaultSort,
     setContentFontSize,
     setAutostartPreference,

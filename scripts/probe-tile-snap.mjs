@@ -20,6 +20,12 @@
  *     ② `mouse_event` 模拟拖动无效（窗口纹丝不动，多半是这个旧 API 被系统忽略）。
  *     算法本身（取舍规则、阈值边界、贴合判定）由 `cargo test` 的 **11 条单测**覆盖。
  *
+ * ## ⚠️ 环境限制（本机实测）：CDP 不可用时退出码是 **2**（未开始）
+ * 本探针靠 CDP（`--remote-debugging-port`）驱动界面。本机 WebView2 **153.0.4234.48** 上，
+ * 无论用 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` 还是 `tauri.conf.json` 的
+ * `additionalBrowserArgs`，该端口都不再监听 ⇒ 探针**无法开始**，此时退出码 2。
+ * 请勿把它当成功能回归（假红与假绿同样有害）。
+ *
  * ## 数据安全
  *  · `tiles.json` **备份并在收尾逐字节还原**（那是用户真实的磁贴集合）；
  *  · 两枚探针笔记自己造、自己删（md + 索引行）；结束核对 vault md 数量复原。
@@ -85,6 +91,26 @@ const listTargets = async () => {
   }
 }
 
+/** 本机 WebView2 是否真的开放了 CDP 调试端口（决定「环境不满足」还是「断言失败」） */
+async function cdpListening() {
+  try {
+    const res = await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`, { signal: AbortSignal.timeout(1500) })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 「环境不满足」而不是「断言失败」。
+ *
+ * 本机实测（WebView2 153.0.4234.48）：`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=…`
+ * 与 `tauri.conf.json` 的 `additionalBrowserArgs` **都不再让该端口监听**，
+ * 于是所有靠 CDP 驱动界面的探针都跑不起来。这种情况必须报 exit 2（未开始），
+ * 而不是伪装成 ❌ 断言失败 —— 后者会让下一个人以为功能坏了（假红和假绿一样有害）。
+ */
+class EnvUnsupported extends Error {}
+
 function connect(wsUrl) {
   return new Promise((resolve, reject) => {
     const socket = new WebSocket(wsUrl)
@@ -138,6 +164,8 @@ async function launch(label) {
   const dev = spawn('pwsh', ['-NoProfile', '-Command', inner], { stdio: 'ignore' })
   const deadline = Date.now() + 240_000
   let target = null
+  /** 应用进程出现之后，再给它一段时间去开调试端口 */
+  let appSeenAt = 0
   while (Date.now() < deadline) {
     await sleep(1500)
     target = (await listTargets()).find(
@@ -145,6 +173,12 @@ async function launch(label) {
     )
     if (target) break
     if (dev.exitCode !== null) break
+    if (appSeenAt === 0) {
+      const alive = await run("(Get-Process zhijian -ErrorAction SilentlyContinue | Measure-Object).Count")
+      if (Number(alive) > 0) appSeenAt = Date.now()
+    } else if (Date.now() - appSeenAt > 20_000 && !(await cdpListening())) {
+      throw new EnvUnsupported(`应用已启动，但 CDP 端口 ${CDP_PORT} 始终没有监听 —— 本机 WebView2 未开放远程调试`)
+    }
   }
   if (!target) throw new Error('等不到主窗口')
   const client = await connect(target.webSocketDebuggerUrl)
@@ -194,6 +228,8 @@ const mdCountBefore = readdirSync(vaultRoot, { recursive: true }).filter((n) => 
 let first = null
 let second = null
 const created = []
+/** 环境不满足（CDP 不可用）⇒ 收尾统一报 exit 2，而不是断言失败 */
+let envUnsupported = false
 
 try {
   /* ---------------- 第一步：造两条探针笔记（拿 id） ---------------- */
@@ -377,12 +413,97 @@ try {
   const bAfter = await tileWindowHasUngroup(idB)
   assert(!bAfter?.hasUngroup, 'F1. 解组后 B 的按钮消失（UI 与 Rust 状态一致）', `F1. B 的按钮还在：${JSON.stringify(bAfter)}`)
   assert(!aAfter?.hasUngroup, 'F2. 解组后 A 的按钮也消失（孤儿清理真的传到了 UI）', `F2. A 的按钮还在：${JSON.stringify(aAfter)}`)
+  /* ---------------- t52：吸附开关（IPC 真机往返） ---------------- */
+
+  const snapDefault = await invoke2('cmd_tile_snap_enabled', {})
+  assert(snapDefault === true, 'I1. t52 吸附开关命令已注册且默认开启', `I1. 读到 ${snapDefault}`)
+
+  const turnOff = await invoke2('cmd_set_tile_snap', { enabled: false })
+  assert(turnOff === false, 'I2. 关闭后命令**回读生效值**（不是假设成功）', `I2. 读到 ${turnOff}`)
+  assert(
+    (await invoke2('cmd_tile_snap_enabled', {})) === false,
+    'I3. 关闭状态可被独立读取（启动对账依赖它）',
+    'I3. 独立读取没返回 false',
+  )
+  /**
+   * 关的是「自动吸附」，**不是**用户的显式操作。
+   * 这里只断言"命令仍可调用、返回值语义可读（不在组里 → false）"——
+   * 它**不能**证明实现里没有误加 gate（返回值恰好相同），如实标注，不冒充强证据。
+   */
+  const ungroupWhileOff = await invoke2('cmd_ungroup_tile', { noteId: idA })
+  assert(
+    ungroupWhileOff === false,
+    'I4. 关闭吸附后显式解组命令仍可调用（不在组里 → false）',
+    `I4. 返回 ${ungroupWhileOff}`,
+  )
+  const turnOn = await invoke2('cmd_set_tile_snap', { enabled: true })
+  assert(turnOn === true, 'I5. 恢复开启后回读 true（收尾不留副作用）', `I5. 读到 ${turnOn}`)
+  info('说明：本探针不验证「关闭后拖动是否真的不吸附」（需要真实拖动事件），见 docs/RUN.md 的缺口记录')
+  /* ---------------- t52：设置面板里的开关端到端（点一下，两条路都要通） ---------------- */
+
+  const openedSettings = await evaluate(
+    main2,
+    `(() => { const btn = document.querySelector('button[aria-label="设置"]'); if (!btn) return 'no-button'; btn.click(); return 'clicked' })()`,
+  )
+  assert(openedSettings === 'clicked', 'J1. 打开了设置面板', `J1. 找不到「设置」按钮：${openedSettings}`)
+  await sleep(1500)
+
+  const rowState = JSON.parse(
+    await evaluate(
+      main2,
+      `JSON.stringify({ row: !!document.querySelector('[data-zj="tile-snap-row"]'), toggle: !!document.querySelector('[data-zj="tile-snap-toggle"]'), checked: document.querySelector('[data-zj="tile-snap-toggle"]')?.getAttribute('aria-checked') ?? null })`,
+    ),
+  )
+  /** 探针**不得**改动用户设置：先记下原值，收尾按原样还原（包括"从未设置过 = null"） */
+  const snapStoredBefore = await evaluate(main2, `window.localStorage.getItem('zhijian.tileSnap')`)
+  const expectedChecked = snapStoredBefore === null ? 'true' : snapStoredBefore
+
+  assert(rowState.row && rowState.toggle, 'J2. 设置面板里真的有「磁贴吸附」开关（不是只存在于源码里）', `J2. ${JSON.stringify(rowState)}`)
+  assert(
+    rowState.checked === expectedChecked,
+    'J3. 开关初始显示值与 localStorage / 默认值一致',
+    `J3. aria-checked=${rowState.checked}，localStorage=${JSON.stringify(snapStoredBefore)}`,
+  )
+
+  const clickToggle = () =>
+    evaluate(main2, `(() => { document.querySelector('[data-zj="tile-snap-toggle"]').click(); return 'ok' })()`)
+
+  await clickToggle()
+  await sleep(1500)
+  const flippedRust = await invoke2('cmd_tile_snap_enabled', {})
+  const flippedStored = await evaluate(main2, `window.localStorage.getItem('zhijian.tileSnap')`)
+  const expectedFlipped = expectedChecked === 'true' ? 'false' : 'true'
+  assert(
+    flippedRust === (expectedFlipped === 'true') && flippedStored === expectedFlipped,
+    'J4. 点一下开关 ⇒ localStorage 与 Rust **同时**翻转（端到端接通，不是假开关）',
+    `J4. 期望 ${expectedFlipped}：Rust=${JSON.stringify(flippedRust)}，localStorage=${JSON.stringify(flippedStored)}`,
+  )
+
+  // 收尾：点回去 + 若原本从未设置过则删掉这个键，做到"零残留"
+  await clickToggle()
+  await sleep(1200)
+  const backRust = await invoke2('cmd_tile_snap_enabled', {})
+  assert(
+    backRust === (expectedChecked === 'true'),
+    'J5. 再点一次恢复原状态（Rust 侧零残留）',
+    `J5. 期望 ${expectedChecked}，实际 ${JSON.stringify(backRust)}`,
+  )
+  if (snapStoredBefore === null) {
+    await evaluate(main2, `(() => { window.localStorage.removeItem('zhijian.tileSnap'); return 'removed' })()`)
+    info('J6. 探针运行前从未设置过该偏好 ⇒ 已删除探针写入的 localStorage 键（零残留）')
+  }
   aWin.tile.close()
   bWin.tile.close()
   aAfter?.tile?.close()
   bAfter?.tile?.close()
 } catch (error) {
-  fail(`探针执行中断：${error instanceof Error ? error.message : String(error)}`)
+  if (error instanceof EnvUnsupported) {
+    envUnsupported = true
+    info(`环境不满足（探针未开始）：${error.message}`)
+    info('这不是断言失败：本机 WebView2 没开放 CDP，探针无法驱动界面（见 docs/RUN.md 的环境限制）')
+  } else {
+    fail(`探针执行中断：${error instanceof Error ? error.message : String(error)}`)
+  }
 } finally {
   first?.client?.close()
   second?.client?.close()
@@ -421,6 +542,11 @@ try {
 console.log('')
 console.log('════════════════ 汇总 ════════════════')
 for (const line of notes) console.log(`  ${line}`)
+if (envUnsupported) {
+  console.log('\n⚠️ 环境不满足：探针**未开始**（本机 WebView2 未开放 CDP 调试端口）')
+  console.log('   exit 2 = 未开始，不是断言失败 —— 详见 docs/RUN.md「CDP 探针的环境限制」')
+  process.exit(2)
+}
 if (failures.length === 0) {
   console.log('\n✅ 吸附成组探针：全部断言通过')
   process.exit(0)

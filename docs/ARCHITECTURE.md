@@ -487,6 +487,7 @@ export interface ThemeDefinition {
 | 当前选中笔记、侧栏折叠、视图、弹窗开关 | **Zustand 内存**（`uiStore`） | 刷新即重置，**禁止落库** |
 | 主题 id / 明暗模式 | `localStorage` **主键 `zj:theme`**（JSON `{"themeId","mode"}`） | 由 `themeStore` 读写；**兼容读取**旧键 `zhijian.theme` / `zhijian.mode`（首次读到旧键会迁移写回 `zj:theme`） |
 | 关闭到托盘偏好 | `localStorage` key **`zhijian.closeToTray`** | 由 `src/lib/appPreferences.ts` 读写；**启动时下发一次给 Rust**（Rust 读不到 localStorage），见 §4.13 |
+| 磁贴吸附开关 | `localStorage` key **`zhijian.tileSnap`**（默认 `true`） | t52：由 `src/lib/appPreferences.ts` 读写；**启动时下发一次给 Rust**（`tiles::TILE_SNAP`，进程内 `AtomicBool`，不落盘），见 §4.16 |
 | 笔记列表默认排序 | `localStorage` key **`zhijian.defaultSort`** | 由 `src/lib/appPreferences.ts` 读写 |
 | 搜索 query / 结果 | **Zustand 内存**（`searchStore`） | 派生数据，不落库 |
 
@@ -1428,12 +1429,17 @@ EVENTS.pinCurrentNoteRequested = 'zhijian://pin-current-note-requested' // 负�
 | Rust | `src-tauri/Cargo.toml`：`tauri-plugin-autostart = "2"`；`src-tauri/src/lib.rs`：`.plugin(tauri_plugin_autostart::Builder::new().arg(AUTOSTART_MINIMIZED_ARG).build())` |
 | 权限 | `capabilities/default.json` 三条：`autostart:allow-enable` / `allow-disable` / `allow-is-enabled`（= `autostart:default` 的展开）。**核对方法**：JSON 解析 `src-tauri/gen/schemas/acl-manifests.json`（manifest 里存的是**裸标识符** `allow-enable` 等，`:default` 在 `permission_sets`/`default_permission` 里 —— **grep 会给出假的 MISSING**） |
 
-### 4.15.2 `--minimized`：为什么必须有，以及它与 `startMinimized` 的分工
+### 4.15.2 `--minimized`：开机自启时为什么不闪窗
 
 | 路径 | 触发 | 行为 | 是否闪窗 |
 | --- | --- | --- | --- |
 | **`--minimized`（Rust）** | 开机自启（插件把该参数写进自启项） | `lib.rs::started_minimized()` 命中 ⇒ **不 show 主窗口**，直接后台常驻 | **零闪窗** |
-| `startMinimized`（前端偏好，t17） | 用户手动启动 | WebView 起来后前端调 `getCurrentWindow().hide()` | 约 1 秒闪现 |
+
+**已删除的旧路径（勿恢复）**：t17 曾有一条前端偏好 `zhijian.startMinimized`（用户手动启动时，
+WebView 起来后由前端调 `getCurrentWindow().hide()`），代价是约 1 秒闪现；它还带过一条
+「开启开机自启就顺手把它置 true」的组合改写。该偏好、对应设置项与组合行为已**整体删除**
+（`src/lib/appPreferences.ts` / `src/features/settings/autostart.ts` / `SettingsPanel.tsx` 均无残留）。
+⇒「启动后是否收进托盘」现在**只有** `--minimized` 一条路径，语义单一，不存在两个开关互相矛盾的可能。
 
 **配套改动（勿回退）**：`src-tauri/tauri.conf.json` 主窗口 `visible: false`。
 原因：Tauri 会在 `setup` **之前**按 config 把窗口显示出来，只靠"setup 里 hide"仍有约 1 秒空白闪现；
@@ -1461,6 +1467,51 @@ reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v zhijian /f
 
 > ⚠️ **仍属人工验证的边界**：以上结论覆盖到「**参数会被写进自启项、进程能收到**」（主源码 + `reg query` 可查）。
 > **"重启系统后自动拉起且不弹窗"** 仍需人工做一次（本环境不能重启机器）—— 请在验收清单里如实标注，不要写成已自动验证。
+
+## 4.16 磁贴吸附开关（t52）
+
+用户需求原话：「增加开启/关闭磁贴吸附的功能」。
+
+### 4.16.1 权威源（与 §4.13 的 `closeToTray` 完全同构）
+
+| 关注点 | 权威源 |
+| --- | --- |
+| **持久化**（跨重启记住） | 前端 `localStorage["zhijian.tileSnap"]`（默认 `true`） |
+| **行为**（拖动到底吸不吸附） | Rust `tiles::TILE_SNAP`（`static AtomicBool`，**不落盘**） |
+
+Rust 读不到 WebView 的 localStorage ⇒ 前端必须在**应用启动时**下发一次（`App.tsx` 启动流程 → `syncTileSnapPreference()`），
+并在**开关变更时**再下发一次（设置面板 → `handleTileSnapChange`）。不下发的后果是"用户关掉后又自己变回开启"
+（Rust 回落默认 `true`）。
+
+命令（FROZEN）：
+- `cmd_set_tile_snap(enabled: bool) -> bool` —— **返回生效值**，前端据此对账（不返回 `()`，避免"假设成功"）；
+- `cmd_tile_snap_enabled() -> bool` —— 读取当前值（启动对账 / 诊断）。
+
+### 4.16.2 关闭后的语义（三条必须一起成立）
+
+| 行为 | 关闭后的表现 | 代码位置 |
+| --- | --- | --- |
+| 吸附 | 拖动不再自动贴合到邻居边上 | `apply_snap_after_move_inner` 首部 gate |
+| 整组跟随 | 拖一枚**不会**带着同组其它磁贴走 | `propagate_group_move` 首部 gate |
+| 已有组号 | **原样保留**（重新开启即恢复） | 不触碰 `TileGeometry.group` |
+
+第三条是刻意的：这是**开关**而不是**清空** —— 关一次开关不该毁掉用户已经摆好的布局。
+显式解组（磁贴标题栏的「取消吸附」/ `cmd_ungroup_tile`）**不受开关影响**：关掉的是"自动吸附"，不是用户的显式操作。
+
+### 4.16.3 为什么两条 gate 都要有（只加一条就是半开状态）
+
+- 只 gate 吸附判定：磁贴不再贴合，但**已在组里的**仍会整组跟随 ⇒ 用户会认为"开关没用"；
+- 只 gate 传播：拖动不再带同伴，但松手仍会自动吸附成组 ⇒ 用户会认为"关不掉"。
+
+### 4.16.4 门禁与验证（含变异测试）
+
+- 静态门禁 `pnpm check:tiles`：① 两条 gate 都存在（按函数体配对提取，不靠"接下来 N 字符"）；
+  ② 开关可读写、默认 `true`、命令返回生效值；③ 两个命令都已在 `lib.rs` 注册。
+- 静态门禁 `pnpm check:settings`：① 偏好键/默认值/读写函数齐全；② 面板两条路都走（落库 + 下发）；
+  ③ App 启动流程真的调用下发（**先对该段去注释再匹配** —— 变异测试抓到过"注释掉也能通过"的假绿）。
+- 真机 `pnpm probe:tile-snap`：I1–I5（默认开启 → 关闭回读 `false` → 独立读取一致 → 关闭状态下显式解组仍可调用 → 恢复开启）。
+- ⚠️ **仍未自动验证**：「关闭后拖动是否真的不吸附」需要一次真实拖动事件 —— 与 `docs/RUN.md` 记录的吸附缺口同源。
+- 六条静态断言全部做过**变异测试**：改默认值 / 摘掉一条 gate / 取消命令注册 / 面板不下发 / 启动不下发 / 删偏好键 ⇒ 各自对号变红。
 
 
 
