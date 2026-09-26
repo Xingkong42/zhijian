@@ -1,0 +1,187 @@
+/**
+ * 主题 token 表（FROZEN 值的唯一样式来源）。
+ * 归属：设计系统（任务 t2）。
+ *
+ * 规则（docs/DESIGN.md 红线）：
+ *  - 颜色 / 圆角 / 阴影**只能**来自本文件的 --zj-* token；组件内出现 #RRGGBB 即缺陷。
+ *  - 本文件的 5 × 2 × 12 个值与 src/db/schema.ts 的 THEMES 逐条对应（case-insensitive 全等），
+ *    **禁止只改一边**；改动需同步 docs/DESIGN.md 与 docs/ARCHITECTURE.md §4.5。
+ *  - Tailwind 语义类（bg-surface / text-muted / bg-zj-surface …）在 src/index.css 的
+ *    @theme inline 里映射到这些变量，因此切主题 = 换 <html> 上的两个属性，无需重渲染组件。
+ *
+ * 主题清单：淡黄(paper-yellow，默认) / 米白(rice-white) / 灰蓝(slate-blue)
+ *           / 墨绿(ink-green) / 暗夜(midnight)
+ * 生效方式：<html data-theme="<id>" class="light|dark">（由 src/store/theme.ts 写入）
+ * 首帧兜底：index.html 上硬编码 data-theme="paper-yellow" class="light"。
+ * 选择器策略：
+ *   [data-theme='x']            → 无 class 时的 light 兜底
+ *   [data-theme='x'].light      → 显式 light
+ *   [data-theme='x'].dark       → 显式 dark（特异性更高，稳定覆盖上面两条）
+ * 同时声明 color-scheme，让原生滚动条 / 表单控件 / 选区跟随明暗。
+ */
+
+:root,
+[data-theme='paper-yellow'],
+[data-theme='paper-yellow'].light {
+  color-scheme: light;
+  --zj-bg: #fdf8ec;
+  --zj-surface: #fffcf3;
+  --zj-surface-2: #f7efdd;
+  --zj-text: #3a3833;
+  --zj-text-muted: #8a8578;
+  --zj-accent: #c9a227;
+  --zj-accent-fg: #fffcf3;
+  --zj-border: #e8dfc8;
+  --zj-hover: #f3ead5;
+  --zj-selection: #f0e3bc;
+  --zj-shadow: 0 1px 2px rgba(58, 56, 51, 0.06);
+  --zj-radius: 8px;
+}
+
+[data-theme='paper-yellow'].dark {
+  color-scheme: dark;
+  --zj-bg: #25231d;
+  --zj-surface: #2c2a23;
+  --zj-surface-2: #34312a;
+  --zj-text: #ede7d9;
+  --zj-text-muted: #9a9384;
+  --zj-accent: #d9b341;
+  --zj-accent-fg: #25231d;
+  --zj-border: #3e3a31;
+  --zj-hover: #332f27;
+  --zj-selection: #4a4128;
+  --zj-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --zj-radius: 8px;
+}
+
+[data-theme='rice-white'],
+[data-theme='rice-white'].light {
+  color-scheme: light;
+  --zj-bg: #faf9f6;
+  --zj-surface: #ffffff;
+  --zj-surface-2: #f2f1ec;
+  --zj-text: #33322e;
+  --zj-text-muted: #83817a;
+  --zj-accent: #a8894a;
+  --zj-accent-fg: #ffffff;
+  --zj-border: #e6e4dc;
+  --zj-hover: #f1f0ea;
+  --zj-selection: #ede6d4;
+  --zj-shadow: 0 1px 2px rgba(51, 50, 46, 0.05);
+  --zj-radius: 8px;
+}
+
+[data-theme='rice-white'].dark {
+  color-scheme: dark;
+  --zj-bg: #1f1f1d;
+  --zj-surface: #272725;
+  --zj-surface-2: #302f2c;
+  --zj-text: #e9e7e1;
+  --zj-text-muted: #96938b;
+  --zj-accent: #c2a159;
+  --zj-accent-fg: #1f1f1d;
+  --zj-border: #393834;
+  --zj-hover: #2e2d2a;
+  --zj-selection: #45402f;
+  --zj-shadow: 0 1px 2px rgba(0, 0, 0, 0.32);
+  --zj-radius: 8px;
+}
+
+[data-theme='slate-blue'],
+[data-theme='slate-blue'].light {
+  color-scheme: light;
+  --zj-bg: #f4f6f8;
+  --zj-surface: #fcfdfe;
+  --zj-surface-2: #e9eef3;
+  --zj-text: #2f3640;
+  --zj-text-muted: #7a8595;
+  --zj-accent: #5b7c99;
+  --zj-accent-fg: #fcfdfe;
+  --zj-border: #dce3ea;
+  --zj-hover: #e8edf2;
+  --zj-selection: #d5e1ec;
+  --zj-shadow: 0 1px 2px rgba(47, 54, 64, 0.06);
+  --zj-radius: 8px;
+}
+
+[data-theme='slate-blue'].dark {
+  color-scheme: dark;
+  --zj-bg: #1c2127;
+  --zj-surface: #232931;
+  --zj-surface-2: #2c333c;
+  --zj-text: #e2e7ee;
+  --zj-text-muted: #8b96a5;
+  --zj-accent: #7fa0be;
+  --zj-accent-fg: #1c2127;
+  --zj-border: #343c46;
+  --zj-hover: #2a313a;
+  --zj-selection: #33445a;
+  --zj-shadow: 0 1px 2px rgba(0, 0, 0, 0.34);
+  --zj-radius: 8px;
+}
+
+[data-theme='ink-green'],
+[data-theme='ink-green'].light {
+  color-scheme: light;
+  --zj-bg: #f3f6f2;
+  --zj-surface: #fbfdfa;
+  --zj-surface-2: #e7eee5;
+  --zj-text: #2c3530;
+  --zj-text-muted: #76857c;
+  --zj-accent: #4f6b58;
+  --zj-accent-fg: #fbfdfa;
+  --zj-border: #d9e3d6;
+  --zj-hover: #e6ede3;
+  --zj-selection: #d2e0ce;
+  --zj-shadow: 0 1px 2px rgba(44, 53, 48, 0.06);
+  --zj-radius: 8px;
+}
+
+[data-theme='ink-green'].dark {
+  color-scheme: dark;
+  --zj-bg: #1b211d;
+  --zj-surface: #222924;
+  --zj-surface-2: #2a332c;
+  --zj-text: #e3eae4;
+  --zj-text-muted: #8a9a8e;
+  --zj-accent: #7ba184;
+  --zj-accent-fg: #1b211d;
+  --zj-border: #333d35;
+  --zj-hover: #28302a;
+  --zj-selection: #31453a;
+  --zj-shadow: 0 1px 2px rgba(0, 0, 0, 0.34);
+  --zj-radius: 8px;
+}
+
+[data-theme='midnight'],
+[data-theme='midnight'].light {
+  color-scheme: light;
+  --zj-bg: #f6f5f3;
+  --zj-surface: #ffffff;
+  --zj-surface-2: #edebe7;
+  --zj-text: #2b2a28;
+  --zj-text-muted: #7d7b76;
+  --zj-accent: #8a6a3b;
+  --zj-accent-fg: #ffffff;
+  --zj-border: #e2dfda;
+  --zj-hover: #eceae6;
+  --zj-selection: #e6dcc9;
+  --zj-shadow: 0 1px 2px rgba(43, 42, 40, 0.06);
+  --zj-radius: 8px;
+}
+
+[data-theme='midnight'].dark {
+  color-scheme: dark;
+  --zj-bg: #16161a;
+  --zj-surface: #1d1d22;
+  --zj-surface-2: #26262c;
+  --zj-text: #e6e5e8;
+  --zj-text-muted: #8e8d94;
+  --zj-accent: #c0a05e;
+  --zj-accent-fg: #16161a;
+  --zj-border: #2f2f36;
+  --zj-hover: #242429;
+  --zj-selection: #3b3526;
+  --zj-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --zj-radius: 8px;
+}

@@ -1,0 +1,47 @@
+/**
+ * 预览面板的 Shiki 样式接线。
+ * 归属：编辑器成员（任务 t4）。
+ *
+ * shiki 在 `defaultColor: false` 时不写死颜色，而是在内联 style 里给出
+ * `--shiki-light*` / `--shiki-dark*` 变量。这里把这些变量按 <html class="dark">
+ * 接到当前明暗上 —— 因为 --zj-* 也是 <html> 上的主题变量，两套主题切换
+ * 都只发生一次 CSS 重算，不重新高亮、不重渲染 React。
+ *
+ * 颜色有两类来源：
+ *  1) 语法 token 色：来自 shiki 主题（vitesse-light / vitesse-dark），不在这里硬编码；
+ *  2) 代码块背景 / 边框 / 兜底色：一律来自 --zj-* token（docs/DESIGN.md 红线）。
+ */
+
+.zj-code-block .shiki,
+.zj-code-block .shiki code,
+.zj-code-block .shiki span {
+  color: var(--shiki-light, var(--zj-text));
+  font-weight: var(--shiki-light-font-weight, inherit);
+  font-style: var(--shiki-light-font-style, inherit);
+  text-decoration: var(--shiki-light-text-decoration, inherit);
+  background-color: transparent;
+}
+
+.dark .zj-code-block .shiki,
+.dark .zj-code-block .shiki code,
+.dark .zj-code-block .shiki span {
+  color: var(--shiki-dark, var(--zj-text));
+  font-weight: var(--shiki-dark-font-weight, inherit);
+  font-style: var(--shiki-dark-font-style, inherit);
+  text-decoration: var(--shiki-dark-text-decoration, inherit);
+}
+
+/* shiki 输出的 pre 自身不提供底色：底色统一由容器的 bg-surface-2 决定 */
+.zj-code-block .shiki {
+  margin: 0;
+  padding: 0;
+  background-color: transparent;
+}
+
+/* 高亮尚未就绪时的纯文本占位（与高亮后视觉一致，避免闪烁跳动） */
+.zj-code-block .zj-code-plain {
+  margin: 0;
+  color: var(--zj-text);
+  background-color: transparent;
+  white-space: pre;
+}

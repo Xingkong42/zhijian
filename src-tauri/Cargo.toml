@@ -1,0 +1,39 @@
+[package]
+name = "zhijian"
+version = "0.1.0"
+description = "纸笺 — 极简淡雅便笺笔记桌面应用"
+authors = ["zhijian team"]
+edition = "2021"
+rust-version = "1.77.2"
+
+# 前端库名（Tauri 约定：不能使用保留字，见 https://doc.rust-lang.org/reference/keywords.html）
+[lib]
+name = "zhijian_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-opener = "2"
+# t38：开机自动启动（设置面板的开关由前端调 plugin:autostart|* 完成）
+tauri-plugin-autostart = "2"
+tauri-plugin-sql = { version = "2", features = ["sqlite"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+[features]
+# Tauri 在 `tauri dev` 时使用该 custom-protocol 特性
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

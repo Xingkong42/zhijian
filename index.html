@@ -1,0 +1,15 @@
+<!doctype html>
+<!-- data-theme / class 由 themeStore 在启动时接管；此处给出 SSR-free 的默认值，
+     保证 JS 加载前浏览器预览与 Tauri 首帧都是「淡黄 · light」 -->
+<html lang="zh-CN" data-theme="paper-yellow" class="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+    <title>纸笺</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

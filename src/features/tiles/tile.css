@@ -1,0 +1,29 @@
+/**
+ * 磁贴窗口的局部样式覆盖（归属：编辑器成员 / t24）。
+ *
+ * 为什么需要：`CodeMirrorEditor` 的主题给正文留了 24/32px 内边距（适合主窗口的
+ * 760px 正文栏），而磁贴窗口默认只有 320×240 —— 那套留白会吃掉三分之一空间。
+ * 这里只在 `.zj-tile` 作用域内收紧内距，主窗口完全不受影响。
+ *
+ * 注意选择器特异性：CodeMirror 的主题由 style-mod 在运行时注入（`.ͼ1 .cm-content`
+ * 即 0,2,0），所以这里用 `.zj-tile .cm-editor .cm-content`（0,3,0）稳定压过它。
+ * 颜色一律不写死（本文件只调整间距）。
+ */
+
+.zj-tile .cm-editor .cm-content {
+  padding: 8px 12px;
+  min-height: 100%;
+}
+
+.zj-tile .cm-editor .cm-scroller {
+  line-height: 1.7;
+}
+
+.zj-tile .cm-editor .cm-line {
+  padding: 0;
+}
+
+/* 磁贴里不需要「当前行」底色（小窗口整体就很紧凑，少一层视觉噪声） */
+.zj-tile .cm-editor .cm-activeLine {
+  background-color: transparent;
+}

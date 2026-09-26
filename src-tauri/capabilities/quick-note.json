@@ -1,0 +1,22 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "quick-note",
+  "description": "快速笔记窗口（t44）的能力。窗口形态：无边框、置顶、不占任务栏、全局唯一（label `quick-note`），作用是**新建**一条笔记后立即关闭。【权限推导方式与 tiles.json 相同：按窗口内前端代码的**真实调用链**最小化授权，而不是无脑给 default、也不是「完全不给」】。逐条由来：① 窗口内要落库（用户敲完内容按 Enter 即成一条笔记）⇒ 走 `store.createNoteFromInput` → `initDb` → 仓储 ⇒ 需要 `sql:allow-load/select/execute`；② t15 之后 **md 是真相源**，`initDb()` 必须经 FsPort（plugin-fs）读写 vault（`<文档>/纸笺/**` 的 md 与 `.paper/*.json`）与 appDataDir（迁移备份/日志）—— 这些是 fs 命令，**不受 sql 权限覆盖**（t33 在磁贴上栽过：缺 fs 权限 ⇒ 窗口一打开就是一屏英文 ACL 报错，用户称之为「乱码」）；③ 关闭按钮调 `getCurrentWindow().close()`，`core:default` 只含窗口**只读**操作 ⇒ 必须显式 `core:window:allow-close`（否则点了没反应）；④ 拖动头用 `data-tauri-drag-region`，而它**不是**免权限的原生区：drag.js 命中拖拽区时执行 `invoke('plugin:window|start_dragging')`，走 IPC、受 ACL 管，且 `core:window:default` 不含它（t19 实测：缺这条的表现是「拖着没反应」且无任何报错）。【刻意不给】dialog / opener / global-shortcut / tray：捕捉框不做导入导出、不开文件对话框、不注册全局键位、不动托盘。**也不给 `core:window:allow-set-focus`**：抢焦点由 Rust 侧 `set_focus()` 完成（不受 ACL 管），前端没有这个调用。【与磁贴的差别】磁贴需要 `core:window:allow-show/hide/is-visible/set-focus`（「全部隐藏」后还要能被前端对账），快速笔记是一问一答的短命窗口，这些一律不需要 —— 授权面比磁贴更小。",
+  "windows": ["quick-note"],
+  "permissions": [
+    "core:default",
+
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
+    "core:window:deny-internal-toggle-maximize",
+
+    "sql:allow-load",
+    "sql:allow-select",
+    "sql:allow-execute",
+
+    "fs:allow-document-read-recursive",
+    "fs:allow-document-write-recursive",
+    "fs:allow-appdata-read-recursive",
+    "fs:allow-appdata-write-recursive"
+  ]
+}

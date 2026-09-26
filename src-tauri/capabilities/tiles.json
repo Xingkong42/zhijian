@@ -1,0 +1,27 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "tiles",
+  "description": "桌面便签磁贴窗口（t19）的能力。【前提修正（captain 裁定，t19）】磁贴**不是**只读展示窗：按需求它显示「标题 + 正文」且**可编辑、自动保存**，因此必须能访问 SQLite。此处按 `TileApp.tsx` / `notesRepo` 的**真实调用**最小化授权，而不是无脑给 `sql:default` 全量、也更不是「完全不给」。【刻意不给】dialog / opener / global-shortcut：磁贴不做导出、不做文件对话框、不注册全局键位。（**fs 起初也在「不给」名单里 —— 那是错的**，见下方 t33 修正：磁贴跑同一套 db 层，md 真相源在 `$DOCUMENT` 下，必须给 fs scope，否则磁贴一打开就是一屏 ACL 报错。）【拖动必须显式授权（t19 复核修正）】`data-tauri-drag-region` **不是**免权限的原生区：tauri-2.11.6/src/window/scripts/drag.js:104 在命中拖拽区时执行 window.__TAURI_INTERNALS__.invoke('plugin:window|start_dragging')，走 IPC、受 ACL 管；且 core:window:default 不含 allow-start-dragging（主窗口的 default.json 正是为此单独授权）。磁贴无边框无系统标题栏，拖动头是它唯一的移动方式 —— 缺这条权限的表现是「拖着没反应」且无任何报错。【t22 修正：这条 deny 挡不住双击最大化，别再把 deny 当护栏】t21 的运行时实证：双击磁贴头**仍然铺满屏**，并把最大化矩形（-8/-8/1936/1048）写进了 tiles.json —— 而本文件里的 deny-internal-toggle-maximize 一直在位、静态自检也通过。⇒ 结论：**drag.js 这条「注入脚本」调用路径不受 capability deny 约束**。补充一个别人容易搞混的点：框架层 `RuntimeAuthority::resolve_access` 其实**是**先查 denied_commands 的（tauri-2.11.6/src/ipc/authority.rs:446-452，命中即拒绝），所以 deny 对**显式 JS API 调用**（如 `getCurrentWindow().toggleMaximize()`）那条路仍然是防线；但注入路径在运行时实测绕过了它。真正的护栏在 Rust 侧两层：① 创建磁贴时 `maximizable(false)` —— 框架 `internal_toggle_maximize` 的实现是 `if is_resizable() { if is_maximized() { unmaximize() } else if is_maximizable() { maximize() } }`（tauri-2.11.6/src/window/plugin.rs:225-231），`is_maximizable()` 为 false 时它**什么都不做**；② 几何合理性闸门 `sanitize_geometry()`（拒绝「铺满屏」的矩形）＋ 事件层「最大化时不落盘」—— 用来兜住已被写脏的 tiles.json。运行时闭环证据：`pnpm probe:tile-maximize`（写入污染几何 → 启动自愈 → 真实双击磁贴头 → IsZoomed=false、几何未被改写；exit 0）。【t33 修正：缺 fs 权限 ⇒ 磁贴一打开就是「读不到这条笔记 + 一长串英文 ACL 报错」（用户口中的「乱码」）】根因是**传递依赖被漏掉了**：磁贴确实不导出、不开文件对话框，但它跑的是**与主窗口同一套数据层**；而 t15 之后 **md 是真相源**，`initDb()` 必须经 FsPort（plugin-fs）读写 vault（`<文档>/纸笺/**` 的 md 与 `.paper/*.json`）以及 appDataDir（迁移备份/日志）—— 这些是 `fs` 命令，**不受 sql 权限覆盖**。t19/t20 只核对了 TileApp.tsx 的**直接调用**（`initDb`/`notesRepo` → sql），没有建「db 层 → FsPort → plugin-fs 命令 → 权限」这条传递链，而且当时的运行时验证只证明了「窗口能创建/拖动/关闭」，**没有验证窗口内渲染了什么** —— 所以漏到了用户手里（原话：「磁贴完全不能用，打开磁贴，磁贴上会显示乱码」，实际是 ACL 报错文本）。修法：按 FsPort 的 9 个方法（exists/mkdir/readDir/readTextFile/writeTextFile/rename/remove/stat/copyFile）与真实路径范围，补 `fs:allow-document-read-recursive` + `fs:allow-document-write-recursive`（vault）与 `fs:allow-appdata-read-recursive` + `fs:allow-appdata-write-recursive`（迁移备份与日志），与主窗口 default.json 的 fs 范围一致；**仍然刻意不给** dialog / opener / global-shortcut 与无关的 fs 目录（desktop/download）。运行时闭环：`pnpm probe:tile-content`（读出磁贴窗口内**实际渲染的标题与正文**并与 md 真相逐字比对）。【权限依据修正（t19）】core:window:default 的 28 项里 27 项只读，第 28 项 allow-internal-toggle-maximize 是写操作（原文「28 项全是只读」不成立，已更正），故 getCurrentWindow().close() 等写操作仍需显式授权。【t40 复核：本 description 与 permissions 现已一致】permissions 里那 4 条 fs:* 是**必需**的（上文 t33 修正已说明传递依赖：磁贴 → @/db → initDb/notesRepo/vault → FsPort(plugin-fs) → `$DOCUMENT/纸笺/**.md` 与 appDataDir），**不要因为「看着像多余授权」而删掉** —— 删掉就会复现用户报的磁贴乱码；`pnpm check:tile` 的一致性断言（「说了不给」vs「实际给了」）与 `pnpm probe:tile-content`（读窗口内真实渲染的标题/正文）共同守住这一点。",
+  "windows": ["tile-*"],
+  "permissions": [
+    "core:default",
+
+    "core:window:allow-close",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
+    "core:window:allow-is-visible",
+
+    "core:window:allow-start-dragging",
+    "core:window:deny-internal-toggle-maximize",
+
+    "sql:allow-load",
+    "sql:allow-select",
+    "sql:allow-execute",
+
+    "fs:allow-document-read-recursive",
+    "fs:allow-document-write-recursive",
+    "fs:allow-appdata-read-recursive",
+    "fs:allow-appdata-write-recursive"
+  ]
+}

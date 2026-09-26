@@ -1,0 +1,9 @@
+# 纸笺 — pnpm 配置（pnpm 11）。
+#
+# 背景：pnpm 默认拦截依赖的安装脚本；esbuild / @tailwindcss/oxide / lightningcss
+# 需要执行脚本下载原生二进制，否则 vite 与 tailwind 无法工作。
+# 显式放行后，新成员克隆仓库只需 `pnpm install`，无需再 `pnpm approve-builds`。
+allowBuilds:
+  esbuild: true
+  '@tailwindcss/oxide': true
+  lightningcss: true

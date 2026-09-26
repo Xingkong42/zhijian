@@ -1,0 +1,224 @@
+@import 'tailwindcss';
+@import './styles/theme.css';
+
+/*
+ * 纸笺 · 设计系统入口（Tailwind CSS 4）
+ * 归属：设计系统（任务 t2）
+ *
+ * 1) 主题 token：src/styles/theme.css 定义 --zj-*（5 套主题 × light/dark）。
+ * 2) 本文件的 @theme inline 把 --zj-* 映射成 Tailwind 语义类，组件里只写语义类：
+ *      颜色   bg-bg / bg-surface / bg-surface-2 / text-text / text-muted / bg-accent
+ *             / text-accent-fg / border-border / bg-hover / bg-selection
+ *      别名   --color-zj-* 同步暴露：bg-zj-surface / text-zj-text / border-zj-border …
+ *      阴影   shadow-zj
+ *      圆角   rounded-zj（≤ 8px，容器上限 10px）
+ *      字号   text-2xs(11) / text-meta(12) / text-ui(13) / text-body(14)
+ *             / text-editor(15) / text-title(18) / text-display(24)
+ *   禁止写 bg-gray-100 / text-red-500 这类内置调色板，也禁止 #RRGGBB 字面量。
+ * 3) dark: 变体被重定义为「class 策略」，与 themeStore 往 <html> 上写 class="dark" 对齐。
+ */
+
+/* Tailwind 4 默认 dark: 是 prefers-color-scheme；本项目由 <html class="dark"> 驱动主题，
+   所以重定义为 class 策略，否则 dark:xxx 在浅色系统下永远不生效。 */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  /* ---- 语义色（组件首选，短名） ---- */
+  --color-bg: var(--zj-bg);
+  --color-surface: var(--zj-surface);
+  --color-surface-2: var(--zj-surface-2);
+  --color-text: var(--zj-text);
+  --color-muted: var(--zj-text-muted);
+  --color-accent: var(--zj-accent);
+  --color-accent-fg: var(--zj-accent-fg);
+  --color-border: var(--zj-border);
+  --color-hover: var(--zj-hover);
+  --color-selection: var(--zj-selection);
+
+  /* ---- 别名：与 token 同名，便于直接对照 docs/ARCHITECTURE.md §4.5 ---- */
+  --color-zj-bg: var(--zj-bg);
+  --color-zj-surface: var(--zj-surface);
+  --color-zj-surface-2: var(--zj-surface-2);
+  --color-zj-text: var(--zj-text);
+  --color-zj-text-muted: var(--zj-text-muted);
+  --color-zj-accent: var(--zj-accent);
+  --color-zj-accent-fg: var(--zj-accent-fg);
+  --color-zj-border: var(--zj-border);
+  --color-zj-hover: var(--zj-hover);
+  --color-zj-selection: var(--zj-selection);
+
+  /* ---- 阴影 / 圆角 ----
+     rounded-zj-sm = 6px（小控件）· rounded-zj = 8px（卡片/面板/列表项，= --zj-radius）
+     · rounded-zj-lg = 10px（容器上限，禁止再大） */
+  --shadow-zj: var(--zj-shadow);
+  --radius-zj-sm: 6px;
+  --radius-zj: var(--zj-radius);
+  --radius-zj-lg: 10px;
+
+  /* ---- 字号刻度（docs/DESIGN.md §3；行高随字号给出，避免组件里堆 leading-*） ---- */
+  --text-2xs: 11px;
+  --text-2xs--line-height: 1.5;
+  --text-meta: 12px;
+  --text-meta--line-height: 1.6;
+  --text-ui: 13px;
+  --text-ui--line-height: 1.7;
+  --text-body: 14px;
+  --text-body--line-height: 1.7;
+  /* 正文字号（编辑器 + Markdown 预览）：引用运行时可变 token --zj-font-content，
+     使设置面板「正文字号」档位只需改一个 CSS 变量即可全站生效（零重渲染）。
+     注意：@theme inline 会把值**内联**进工具类（.text-editor{font-size:var(--zj-font-content,15px)}），
+     不会生成 --text-editor 变量；因此运行时请覆盖 --zj-font-content，不要覆盖 --text-editor。 */
+  --text-editor: var(--zj-font-content, 15px);
+  --text-editor--line-height: 1.75;
+  --text-title: 18px;
+  --text-title--line-height: 1.6;
+  --text-display: 24px;
+  --text-display--line-height: 1.4;
+
+  /* ---- 字重刻度（禁止 700+） ---- */
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
+  --font-sans:
+    'Inter', 'HarmonyOS Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;
+}
+
+/* ------------------------------ 基础层 ------------------------------ */
+
+/*
+ * 正文基准字号（设计系统对外暴露的「可变排版 token」）。
+ * 唯一正确的运行时改法（设置面板「正文字号」档位）：
+ *   document.documentElement.style.setProperty('--zj-font-content', '<N>px')
+ *   默认档位：document.documentElement.style.removeProperty('--zj-font-content') → 回到 15px
+ * 影响面：所有挂 `text-editor` 的元素（CodeMirror 正文宿主、Markdown 预览正文）。
+ * 不改 toolbar/侧栏/列表等 UI 字号 —— 那些是固定刻度（docs/DESIGN.md §3）。
+ */
+:root {
+  --zj-font-content: 15px;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--zj-bg);
+  color: var(--zj-text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+  /* 无边框窗口：整页不可选中文本，仅内容区显式放开 */
+  user-select: none;
+}
+
+::selection {
+  background: var(--zj-selection);
+}
+
+/* 细滚动条，颜色跟随 token */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--zj-border) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--zj-border);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 键盘可达性：统一 focus ring（淡雅，不刺眼） */
+:focus-visible {
+  outline: 2px solid var(--zj-accent);
+  outline-offset: 2px;
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* 组件级焦点环工具类：交互组件统一挂 zj-focus-ring，
+   语义比 "focus-visible:outline-2 focus-visible:outline-accent" 更明确，
+   且不依赖 outline-style 的默认值。 */
+@utility zj-focus-ring {
+  &:focus-visible {
+    outline: 2px solid var(--zj-accent);
+    outline-offset: 2px;
+  }
+}
+
+/* 极简扁平：只做颜色 / 透明度过渡，不做位移或缩放动画 */
+.zj-transition {
+  transition-property: color, background-color, border-color, opacity;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+
+/* 浮层淡入（纯透明度，无位移） */
+@keyframes zj-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.zj-fade-in {
+  animation: zj-fade-in 140ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zj-fade-in {
+    animation: none;
+  }
+
+  *,
+  *::before,
+  *::after {
+    transition-duration: 1ms !important;
+  }
+}
+
+/* 无边框窗口拖拽区域 */
+[data-tauri-drag-region] {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+button,
+input,
+textarea,
+select,
+a,
+[role='button'] {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* 允许选中的内容区域 */
+.zj-selectable {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.zj-scroll {
+  overflow: auto;
+  overscroll-behavior: contain;
+}
