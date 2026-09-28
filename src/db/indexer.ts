@@ -248,6 +248,9 @@ export async function touchIndexFileMeta(id: string, mtimeMs: number, size: numb
 
 /* ============================== 目录索引 ============================== */
 
+/** 中文拼音排序比较器（码点排序会把「学习」排在「工作」前面，与用户直觉不符） */
+const zhCompare = new Intl.Collator('zh-CN').compare
+
 /**
  * 按目录树重建 folders 行：
  *  - 父目录先于子目录写入（外键约束）；
@@ -255,9 +258,9 @@ export async function touchIndexFileMeta(id: string, mtimeMs: number, size: numb
  *  - 已消失的目录行最后删除（此时其下笔记的 folder_id 已被置空或改指）。
  */
 export async function upsertFolderRows(folderRels: string[], meta?: Record<string, { id: string; createdAt: number }>): Promise<number> {
-  const rels = [...new Set(folderRels.map((rel) => toRelPosix(rel)))].sort((a, b) => a.localeCompare(b))
+  const rels = [...new Set(folderRels.map((rel) => toRelPosix(rel)))].sort((a, b) => zhCompare(a, b))
   const metas = meta ?? (await ensureFolderMetas(rels))
-  const ordered = [...rels].sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b))
+  const ordered = [...rels].sort((a, b) => a.split('/').length - b.split('/').length || zhCompare(a, b))
 
   const groups = new Map<string, string[]>()
   for (const rel of rels) {
@@ -266,7 +269,7 @@ export async function upsertFolderRows(folderRels: string[], meta?: Record<strin
     list.push(rel)
     groups.set(parent, list)
   }
-  for (const list of groups.values()) list.sort((a, b) => basenameOf(a).localeCompare(basenameOf(b)))
+  for (const list of groups.values()) list.sort((a, b) => zhCompare(basenameOf(a), basenameOf(b)))
 
   const existing = await dbSelect<{ id: string; path: string | null }>('读取文件夹索引失败', INDEX_SQL.selectFolderPaths)
   const byPath = new Map(existing.filter((row) => row.path).map((row) => [toRelPosix(String(row.path)), String(row.id)]))
