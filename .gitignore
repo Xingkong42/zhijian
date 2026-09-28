@@ -29,3 +29,6 @@ src-tauri/gen/schemas
 
 # 打包产物（源码库不放二进制；发布走 GitHub Releases）
 release/
+
+# pnpm 内容寻址存储：本机 store-dir 在项目外，这行防止在项目内跑 pnpm 时被误提交
+/.pnpm-store/
