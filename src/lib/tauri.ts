@@ -15,7 +15,7 @@ export const isTauri: boolean =
 export const APP_META = {
   productName: '纸笺',
   identifier: 'com.zhijian.app',
-  version: '0.1.0',
+  version: '0.2.1',
   /** SQLite 迁移表名与库文件名（与 tauri.conf.json 的 plugins.sql 对应） */
   dbUrl: 'sqlite:zhijian.db',
   migrationTable: '_zj_migrations',

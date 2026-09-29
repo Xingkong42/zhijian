@@ -793,6 +793,44 @@ check('单实例锁已注册、是第一个插件、且会唤起已有窗口（t
   )
 })
 
+/* ---------------- 应用版本号：四处必须一致 ---------------- */
+
+/**
+ * 应用版本散在四个地方，用途各不相同，所以**四处都要改**：
+ *  · `package.json`            —— npm 包版本（前端构建元数据）
+ *  · `src-tauri/Cargo.toml`    —— crate 版本，`app_version` 命令的返回值（设置面板显示的那个）
+ *  · `src-tauri/tauri.conf.json` —— 安装包 / 窗口元数据版本（NSIS 安装包文件名也用它）
+ *  · `src/lib/tauri.ts`        —— `APP_META`，导出笔记时写进 front-matter 的版本
+ *
+ * 人工同步必然漂移：改一处忘一处，就会出现「安装包 0.2.1 / 关于里 0.1.0 /
+ * 导出文件里 0.1.0」这种自相矛盾，而且没有任何门会红。所以在这里钉一条。
+ *
+ * ⚠️ 只比这四处，**不要**去全仓库扫 "0.1.0" —— 那会撞上第三方依赖版本
+ * （`react-markdown` 10.1.0、Cargo.lock 里若干 0.1.0 的 crate）。
+ */
+check('应用版本号四处一致（package.json / Cargo.toml / tauri.conf.json / APP_META）', () => {
+  const pkg = JSON.parse(read('package.json')).version
+  const cargo = read('src-tauri/Cargo.toml').match(/^\s*version\s*=\s*"([^"]+)"/m)?.[1]
+  const conf = JSON.parse(read('src-tauri/tauri.conf.json')).version
+  const meta = read('src/lib/tauri.ts').match(/\bversion:\s*'([^']+)'/)?.[1]
+
+  assert(Boolean(cargo), 'Cargo.toml 里找不到 version = "x.y.z"（锚点失效，断言会空跑）')
+  assert(Boolean(meta), "tauri.ts 里找不到 version: 'x.y.z'（锚点失效，断言会空跑）")
+
+  const spots = [
+    ['package.json', pkg],
+    ['src-tauri/Cargo.toml', cargo],
+    ['src-tauri/tauri.conf.json', conf],
+    ['src/lib/tauri.ts', meta],
+  ]
+  const values = [...new Set(spots.map(([, value]) => value))]
+  assert(
+    values.length === 1,
+    `四处版本不一致：\n${spots.map(([file, value]) => `       · ${file} = ${value}`).join('\n')}`,
+  )
+  assert(/^\d+\.\d+\.\d+$/.test(values[0]), `版本号不是 x.y.z 形式：${values[0]}`)
+})
+
 /* ============================ 汇总 ============================ */
 
 const failed = results.filter((r) => !r.ok)

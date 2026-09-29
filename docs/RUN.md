@@ -1,6 +1,6 @@
 # 纸笺 · 运行与验证手册（RUN）
 
-> 适用版本：v0.1.0 · 最后一次完整验证：t7 集成联调（见 §6 证据）
+> 适用版本：v0.2.1 · 最后一次完整验证：t7 集成联调（见 §6 证据）
 > 相关文档：[`ARCHITECTURE.md`](ARCHITECTURE.md)（接口契约，唯一权威）· [`DESIGN.md`](DESIGN.md)（视觉规范）·
 > [`INTEGRATION-STATUS.md`](INTEGRATION-STATUS.md)（集成期诊断快照）
 
