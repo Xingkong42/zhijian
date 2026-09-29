@@ -726,6 +726,73 @@ check('动作 id 只有一处字面量真相源（settings/shortcuts.ts 不得�
   )
 })
 
+/* ---------------- 应用装配：单实例锁（t53） ---------------- */
+
+/**
+ * 从 `from` 起第一段花括号配平的代码块。
+ * 刻意不用「接下来 N 个字符」：那种锚点会随文件重排静默失配（本项目已栽过）。
+ */
+function blockAt(source, from) {
+  const open = source.indexOf('{', from)
+  if (open < 0) return null
+  let depth = 0
+  for (let i = open; i < source.length; i += 1) {
+    if (source[i] === '{') depth += 1
+    else if (source[i] === '}') {
+      depth -= 1
+      if (depth === 0) return source.slice(open, i + 1)
+    }
+  }
+  return null
+}
+
+/**
+ * 报障原文（用户）：「程序最小化到托盘后，再点桌面快捷图标，又会打开一个新的程序，
+ * 系统托盘会有两个实例」。根因：lib.rs 的装配注释里写着"单实例"，却**从未注册**
+ * 任何单实例插件 —— 注释描述了意图，代码里没有实现。
+ *
+ * 三条必须同时成立，缺一条就是半修复：
+ *  1. 依赖在（Cargo.toml）；
+ *  2. 插件注册了，而且**是第一个** —— 官方要求，先注册别的插件会让锁失效；
+ *  3. 回调里唤起了主窗口 —— 只加锁不唤起，用户双击图标会变成"点了没反应"。
+ */
+check('单实例锁已注册、是第一个插件、且会唤起已有窗口（t53）', () => {
+  const cargo = read('src-tauri/Cargo.toml')
+  assert(
+    /tauri-plugin-single-instance\s*=/.test(cargo),
+    'Cargo.toml 缺少 tauri-plugin-single-instance 依赖 —— 没有它，第二次启动必然新开进程（两个托盘图标、两份快捷键注册）',
+  )
+
+  // 去注释后再匹配：注释里出现 `.plugin(` 字样不该干扰"谁是第一个插件"的判定
+  const libCode = stripComments(read('src-tauri/src/lib.rs'))
+  const initAt = libCode.indexOf('tauri_plugin_single_instance::init')
+  assert(initAt >= 0, 'lib.rs 没有注册 tauri_plugin_single_instance::init')
+
+  /**
+   * 断言方式：**第一个 `.plugin(` 后面紧跟的必须是单实例插件**。
+   *
+   * 这段被变异测试改过两轮，两次都不对，值得留档：
+   *  · 第一版 `lib.indexOf('.plugin(') < initAt` 是**反的** —— 在它前面插一个别的插件时，
+   *    第一个 `.plugin(` 反而更靠前，断言照样通过（变异 M2 抓到假绿）；
+   *  · 第二版 `!lib.slice(0, initAt).includes('.plugin(')` 又**过严** ——
+   *    `initAt` 之前本就紧邻着属于同一条语句的 `.plugin(` 前缀，正确代码也会被判红。
+   */
+  const firstPluginAt = libCode.indexOf('.plugin(')
+  assert(firstPluginAt >= 0, 'lib.rs 里找不到任何 .plugin(...) 注册（装配结构变了？）')
+  const afterFirstPlugin = libCode.slice(firstPluginAt + '.plugin('.length).trimStart()
+  assert(
+    afterFirstPlugin.startsWith('tauri_plugin_single_instance::init'),
+    `第一个注册的插件不是单实例锁（实际是 ${afterFirstPlugin.slice(0, 40)}…）：官方要求它必须最先注册，否则锁不生效`,
+  )
+
+  const callback = blockAt(libCode, initAt)
+  assert(Boolean(callback), '提取不到单实例回调体（锚点失效，断言会空跑）')
+  assert(
+    /window::show_main\(/.test(callback),
+    '回调里必须调用 window::show_main：只加锁不唤起，用户双击图标毫无反馈（把"新开一个窗口"换成了"点了没反应"）',
+  )
+})
+
 /* ============================ 汇总 ============================ */
 
 const failed = results.filter((r) => !r.ok)

@@ -69,6 +69,20 @@ fn started_minimized() -> bool {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()        // 单实例 + 对话框 + 文件系统 + 打开外部链接
+        // 单实例锁：**必须是第一个注册的插件**（插件官方要求，否则锁不生效）。
+        //
+        // 为什么必须有（用户实测报障）：「程序最小化到托盘后，再点桌面快捷图标，
+        // 又会打开一个新的程序，系统托盘会有两个实例」。两个实例会各自建托盘图标、
+        // 各自注册全局快捷键（后注册的那个必然失败），并同时读写同一份 SQLite 与 tiles.json。
+        //
+        // 回调语义：走到这里说明**已有实例在运行**，本次启动的参数会被交给它、本进程随即退出；
+        // 所以我们在这里把已有实例的主窗口显示并聚焦（复用托盘的唤起路径），
+        // 让用户"双击图标"得到与"点托盘图标"一致的反馈 —— 只锁不唤起等于点了没反应。
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Err(error) = window::show_main(app) {
+                eprintln!("[纸笺] 第二实例唤起主窗口失败：{error}");
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
