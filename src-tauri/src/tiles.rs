@@ -28,6 +28,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
+use tauri::utils::config::Color;
 use tauri::{AppHandle, Emitter, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 use crate::events;
@@ -712,7 +713,17 @@ pub fn create_tile<R: Runtime>(
     .focused(false)
     // 透明让前端能做圆角/柔和底色；Windows 上透明窗口本身不支持拖拽缩放，
     // 但磁贴是"便签"形态：位置可拖（前端用 data-tauri-drag-region），尺寸由尺寸档位控制。
-    .transparent(true);
+    .transparent(true)
+    /*
+     * ⚠️ 只设 `transparent(true)` **不够**（t54 实测栽过，用户反馈"调了没有任何效果"）：
+     * Windows 上 WebView2 自身有一层**默认白底**（`DefaultBackgroundColor`，默认白色），
+     * 它位于 CSS 之下 —— 于是 CSS 里 html/body/元素全部透明之后，露出的是那层白底，
+     * 而不是桌面。Tauri 的已知问题：tauri-apps/tauri#12450（"the webview background is pure white"）。
+     *
+     * 解法就是把 WebView2 的默认背景色显式设成**全透明**（RGBA 全 0）——
+     * 这一步做完，透明度才是"透过背景看到桌面"，而不是"把颜色调淡成窗口底色"。
+     */
+    .background_color(Color(0, 0, 0, 0));
 
     let window = builder
         .build()

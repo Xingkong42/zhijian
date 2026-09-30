@@ -73,6 +73,22 @@ body:has(.zj-tile) {
 
 /* ⚠️ 用**属性**选择器：标题栏在 DOM 上是 `data-zj-tile-header`（属性），不是 `.zj-tile-header` 类。
    第一版写成了类选择器 ⇒ 规则静默不匹配（背景仍不透明），只有真机/浏览器量计算值才发现。 */
+/**
+ * 正文区：编辑器容器的 `bg-bg` 是压在根容器之上的**第三层**不透明背景。
+ * 不处理它的话，根容器再透明也白搭 —— 用户实测原话：
+ * 「只实现了标题区域，正文区域的背景依然没有变化」。
+ *
+ * 这里刻意置为 `transparent`（而不是再乘一次 alpha）：
+ * 让它**透出根容器那一层**，正文的复合不透明度才正好等于用户设的值；
+ * 若两层各自乘 alpha，复合结果会变成 1-(1-a)²（a=0.4 时是 0.64）—— 明显偏实。
+ */
+.zj-tile.zj-tile[data-zj-tile] [data-zj-editor-root] {
+  /* ⚠️ 必须 !important：该容器的 `bg-bg` 由 Tailwind 工具类给出，
+     实测（调试染色）确认选择器能命中、但普通声明仍会被工具类盖住 ——
+     加 !important 后正文区才真正透出根容器那层 alpha。 */
+  background-color: transparent !important;
+}
+
 .zj-tile.zj-tile[data-zj-tile] [data-zj-tile-header] {
   background-color: color-mix(
     in srgb,

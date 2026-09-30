@@ -1714,6 +1714,7 @@ await check('t54：localStorage 为空时，四个偏好都回落到"不变观�
 
 await check('t54：磁贴窗口真的用了这两个偏好（透明度 + 两处只读）', () => {
   const tile = stripT52(readT52('src/features/tiles/TileApp.tsx'))
+  const editorSrc = readT52('src/features/editor/CodeMirrorEditor.tsx')
   assert(/useAppPreferences\(\)/.test(tile), '磁贴没有读应用偏好（跨窗口靠同源 localStorage + storage 事件自动同步）')
   assert(
     /--zj-tile-alpha/.test(tile),
@@ -1743,6 +1744,14 @@ await check('t54：磁贴窗口真的用了这两个偏好（透明度 + 两处�
    * 可单量磁贴容器的计算值时 alpha 明明是对的（只量一层永远发现不了）。
    * 所以磁贴窗口里 html/body 必须一并透明（用 :has(.zj-tile) 只在磁贴窗口生效）。
    */
+  /**
+   * 正文区（用户第三次反馈的点）：编辑器容器自带 `bg-bg`，是压在根容器之上的第三层背景，
+   * 不置透明的话"标题透、正文不透"。用属性钩子 [data-zj-editor-root] 而不是 Tailwind 类名。
+   */
+  assert(
+    /\[data-zj-editor-root\]/.test(tileCss) && /data-zj-editor-root/.test(editorSrc),
+    '磁贴里正文容器必须透明（否则正文区背景不随透明度变化）—— 需要 [data-zj-editor-root] 钩子 + tile.css 规则',
+  )
   assert(
     /html:has\(\.zj-tile\)/.test(tileCss) && /body:has\(\.zj-tile\)/.test(tileCss),
     'tile.css 必须让 html/body 在磁贴窗口里透明 —— 否则内层透明只是透出 body 的不透明底，表现就是"调了完全没效果"',

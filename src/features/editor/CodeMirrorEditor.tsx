@@ -319,6 +319,13 @@ export function CodeMirrorEditor({
     <div
       ref={hostRef}
       data-zj-editor-host={noteId}
+      /**
+       * `data-zj-editor-root` 是给**磁贴**用的钩子：磁贴要按用户设的透明度把背景变半透明，
+       * 而本容器自带 `bg-bg`（不透明）—— 它是压在磁贴根容器之上的**第三层**背景，
+       * 不处理的话正文区域完全不透（用户实测：「只实现了标题区域，正文区域的背景依然没有变化」）。
+       * 用属性而不是让 tile.css 去选 Tailwind 类名：类名重构时不会静默失效。
+       */
+      data-zj-editor-root=""
       className={cn(
         'zj-selectable h-full min-h-0 overflow-hidden bg-bg font-mono text-editor text-text',
         className,

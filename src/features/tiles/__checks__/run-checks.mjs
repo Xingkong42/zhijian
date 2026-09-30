@@ -717,6 +717,14 @@ async function loadTsxModule(modulePath) {
   /* ------------------------------ t52：吸附开关 ------------------------------ */
 
   check(
+    't54：磁贴窗口必须同时设 transparent 与 background_color（只设前者在 Windows 上仍是白底）',
+    /\.transparent\(true\)/.test(tilesRs) && /\.background_color\(Color\(0, 0, 0, 0\)\)/.test(tilesRs),
+    'Windows 上 WebView2 自带一层默认白底（DefaultBackgroundColor），位于 CSS 之下：' +
+      '只设 transparent(true) 时，CSS 里 html/body/元素全透明之后露出的是那层白底而不是桌面，' +
+      '用户看到的正是"调了完全没有任何效果"（Tauri 已知问题 tauri-apps/tauri#12450）。' +
+      '必须在创建磁贴窗口时把默认背景设成全透明。',
+  )
+  check(
     't54：「固定磁贴可被隐藏」默认关闭，且 gate 落在 set_all_visible_impl 上',
     /static TILE_HIDE_PINNED:\s*AtomicBool\s*=\s*AtomicBool::new\(false\)/.test(tilesRs) &&
       (() => {
