@@ -20,6 +20,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
 import { AppWindow, Pin, Unlink, X } from 'lucide-react'
 import { Badge, IconButton, Input } from '@/components/ui'
 import { useAppPreferences } from '@/lib/appPreferences'
@@ -452,8 +453,15 @@ export function TileApp({
       data-zj-tile=""
       data-zj-tile-opacity={String(preferences.tileOpacity)}
       data-zj-tile-editable={preferences.tileEditable ? 'on' : 'off'}
-      // t54：透明度作用于整枚磁贴（窗口本身已是 transparent，所以低不透明度能透出桌面）
-      style={{ opacity: preferences.tileOpacity }}
+      /**
+       * t54：透明度只作用于**背景**，不作用于整枚磁贴。
+       *
+       * ⚠️ 这里第一版写的是 `style={{ opacity: preferences.tileOpacity }}`，用户当场指出不对：
+       * `opacity` 会把文字、图标一起调淡（"整块贴纸变淡"，不是"玻璃背景"）。
+       * 现在只把一个 CSS 变量交给样式层，由 tile.css 用 `color-mix()` 把它混进背景色，
+       * 文字仍用 `--zj-text` 原色 ⇒ 低透明度下透过背景看到桌面，字依然清晰。
+       */
+      style={{ '--zj-tile-alpha': String(preferences.tileOpacity) } as CSSProperties}
       className="zj-tile flex h-full min-h-0 flex-col overflow-hidden bg-bg text-text"
     >
       {/* 拖拽区：deep = 子树内任意位置可拖，按钮自动让路（见 Titlebar.tsx 的说明） */}

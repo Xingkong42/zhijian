@@ -1716,8 +1716,29 @@ await check('t54：磁贴窗口真的用了这两个偏好（透明度 + 两处�
   const tile = stripT52(readT52('src/features/tiles/TileApp.tsx'))
   assert(/useAppPreferences\(\)/.test(tile), '磁贴没有读应用偏好（跨窗口靠同源 localStorage + storage 事件自动同步）')
   assert(
-    /opacity: preferences\.tileOpacity/.test(tile.replace(/\n\s*/g, ' ')),
-    '磁贴没有把透明度应用到容器上',
+    /--zj-tile-alpha/.test(tile),
+    '磁贴没有把透明度作为 CSS 变量交给样式层（背景透明靠它驱动）',
+  )
+  assert(
+    !/opacity:\s*preferences\.tileOpacity/.test(tile.replace(/\n\s*/g, ' ')),
+    '又用回了容器 opacity —— 它会把文字一起调淡（用户实测指出过的错误实现）',
+  )
+  const tileCss = readT52('src/features/tiles/tile.css')
+  assert(tileCss.length > 0, 'tile.css 读不到（防断言空跑）')
+  assert(/color-mix\(/.test(tileCss), 'tile.css 缺 color-mix：背景透明的实现手段')
+  assert(/--zj-tile-alpha/.test(tileCss), 'tile.css 没有消费 --zj-tile-alpha')
+  /**
+   * 标题栏在 DOM 上是**属性** `data-zj-tile-header`（不是类），选择器必须对上它。
+   * 第一版 CSS 写成 `.zj-tile-header` 类选择器 ⇒ 规则静默不匹配、标题栏一直不透明，
+   * 静态断言当时也没拦住（它只查"有没有用 color-mix"）。这条补上这个盲区。
+   */
+  assert(
+    /\[data-zj-tile-header\]/.test(tileCss),
+    'tile.css 必须用属性选择器 [data-zj-tile-header] 命中标题栏（写成类名会静默失效）',
+  )
+  assert(
+    !/^\s*opacity\s*:/m.test(tileCss),
+    'tile.css 里出现了 opacity 声明（会把子元素一起调淡），应只用背景色的 alpha',
   )
   assert(
     (tile.match(/readOnly=\{!preferences\.tileEditable\}/g) ?? []).length === 2,

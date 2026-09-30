@@ -27,3 +27,41 @@
 .zj-tile .cm-editor .cm-activeLine {
   background-color: transparent;
 }
+
+/* ==================================================================== */
+/* t54：磁贴透明度 —— 只让**背景**半透明，前景（文字/图标）保持不透明      */
+/* ==================================================================== */
+
+/**
+ * ⚠️ 为什么不能用容器 `opacity`（第一版就是这么写的，用户当场指出不对）：
+ * `opacity` 作用于整棵子树 —— 文字、图标、选中高亮统统跟着变淡，那是"整块贴纸调淡"，
+ * 不是用户要的"玻璃背景"。用户原话：「降低透明度后连同文字背景都变浅色，
+ * 并非真正意义上的透明」。
+ *
+ * 正确语义：**背景色**与 `transparent` 按比例混合，文字仍用 `--zj-text` 原色
+ * ⇒ 低透明度下能透过背景看到桌面，而字依旧清晰。
+ *
+ * 比例来自 CSS 变量 `--zj-tile-alpha`（由 TileApp 按偏好写进行内 style，默认 1）。
+ * `color-mix()` 在 WebView2（Chromium 111+）原生支持；不受支持的引擎会忽略这两条
+ * 声明，于是回落到 Tailwind 的 `bg-bg` / `bg-surface-2`（即完全不透明）—— 安全降级。
+ *
+ * 磁贴里需要透明化的只有这两层：CodeMirror 的主题本身就是 `backgroundColor: transparent`
+ * （见 editorTheme.ts），行内代码块那种小色块保留不透明反而更像"贴在玻璃上的标签"。
+ *
+ * ⚠️ 特异性：这里用 `.zj-tile.zj-tile`（0,2,0）而不是单个类 —— 为的是稳定压过
+ * Tailwind 的 `bg-bg` 工具类，**不依赖**两个 CSS 文件的打包顺序。
+ */
+.zj-tile.zj-tile {
+  --zj-tile-alpha: 1;
+  background-color: color-mix(in srgb, var(--zj-bg) calc(var(--zj-tile-alpha) * 100%), transparent);
+}
+
+/* ⚠️ 用**属性**选择器：标题栏在 DOM 上是 `data-zj-tile-header`（属性），不是 `.zj-tile-header` 类。
+   第一版写成了类选择器 ⇒ 规则静默不匹配（背景仍不透明），只有真机/浏览器量计算值才发现。 */
+.zj-tile.zj-tile[data-zj-tile] [data-zj-tile-header] {
+  background-color: color-mix(
+    in srgb,
+    var(--zj-surface-2) calc(var(--zj-tile-alpha) * 100%),
+    transparent
+  );
+}

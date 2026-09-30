@@ -1586,11 +1586,47 @@ Rust 读不到 WebView 的 localStorage ⇒ 前端必须在**应用启动时**�
 而 `useAppPreferences` 内部订阅了 `storage` 事件 ⇒ 主窗口一改设置，磁贴自动跟着变，
 **不需要任何额外的跨窗口消息**。这也是为什么这四个偏好没有进 `EVENTS` 契约。
 
-### 4.18.4 透明度的实现与下限
+### 4.18.4 透明度：只让**背景**透明，前景保持不透明（FROZEN）
 
-磁贴窗口**本来就是 `transparent(true)`**（见 §4.14 的创建参数），所以透明度只需前端把
-`style.opacity` 设在容器上，**不用改窗口创建参数**。
+**语义**（用户原话）：低透明度下"文字颜色不会变浅，只是背景变透明，可以透过背景看到桌面"。
+
+所以**不能用容器 `opacity`** —— 它作用于整棵子树，文字/图标/选中高亮会一起变淡，
+那是"整块贴纸调淡"，不是"玻璃背景"。
+（第一版就是这么写的，用户当场指出不对；这正是"实现方式"与"用户心智模型"不一致的典型。）
+
+正确做法：把**背景色**与 `transparent` 按比例混合，前景继续用 `--zj-text` 原色：
+
+```css
+/* 比例由 TileApp 写进行内 style：style={{ '--zj-tile-alpha': String(偏好值) }} */
+.zj-tile.zj-tile {
+  background-color: color-mix(in srgb, var(--zj-bg) calc(var(--zj-tile-alpha) * 100%), transparent);
+}
+.zj-tile.zj-tile[data-zj-tile] [data-zj-tile-header] {  /* 标题栏同样处理 */
+  background-color: color-mix(in srgb, var(--zj-surface-2) calc(var(--zj-tile-alpha) * 100%), transparent);
+}
+```
+
+要点（每条都踩过或量过）：
+
+| 要点 | 说明 |
+| --- | --- |
+| 只处理两层 | 磁贴里真正不透明的只有**根容器**与**标题栏**；CodeMirror 主题本身就是 `backgroundColor: transparent`，行内代码块那种小色块保留不透明反而更像"贴在玻璃上的标签" |
+| 选择器 | 标题栏在 DOM 上是**属性** `data-zj-tile-header`，不是类 —— 第一版写成 `.zj-tile-header` 类选择器，规则**静默不匹配**（标题栏一直不透明），只有量 `getComputedStyle` 才发现 |
+| 特异性 | 用 `.zj-tile.zj-tile`（0,2,0）稳定压过 Tailwind 的 `bg-bg`，不依赖两个 CSS 文件的打包顺序 |
+| 降级 | 不支持 `color-mix` 的引擎会忽略这两条声明 ⇒ 回落到工具类（完全不透明），安全降级 |
+| 窗口参数 | 磁贴窗口**本来就是 `transparent(true)`**（§4.14），所以不需要改创建参数 |
+
 下限 `TILE_OPACITY_MIN = 0.3` 是刻意的：再低就几乎看不见，用户会以为"磁贴丢了"却找不到可点的东西。
+
+**实测（浏览器量计算值，`?tile=<id>` 直接渲染磁贴组件）**：
+
+| `--zj-tile-alpha` | 根容器背景 | 标题栏背景 | 容器 `opacity` | 文字色 |
+| --- | --- | --- | --- | --- |
+| `1` | `color(srgb …)`（无 alpha） | `color(srgb …)` | `1` | `rgb(58, 56, 51)` |
+| `0.4` | `color(srgb … / 0.4)` | `color(srgb … / 0.4)` | `1` | **不变** |
+| `0.15` | `color(srgb … / 0.15)` | `color(srgb … / 0.15)` | `1` | **不变** |
+
+⇒ 背景随透明度变化、文字恒为原色、容器 `opacity` 恒为 1。
 
 ### 4.18.5 只读状态必须说出口
 
