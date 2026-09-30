@@ -116,7 +116,7 @@ export function emitPinCurrentNoteRequested(payload = { noteId: null }) {
 export const APP_META = {
   productName: '纸笺',
   identifier: 'com.zhijian.app',
-  version: '0.2.1',
+  version: '0.2.2',
   dbUrl: 'sqlite:zhijian.db',
   migrationTable: '_zj_migrations',
 }

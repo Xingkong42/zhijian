@@ -22,6 +22,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AppWindow, Pin, Unlink, X } from 'lucide-react'
 import { Badge, IconButton, Input } from '@/components/ui'
+import { useAppPreferences } from '@/lib/appPreferences'
 import { COMMANDS, isTauri, onNoteChanged, onTilesChanged } from '@/lib/tauri'
 import { cn, errorMessage } from '@/lib/utils'
 import { CodeMirrorEditor } from '@/features/editor/CodeMirrorEditor'
@@ -216,6 +217,15 @@ export function TileApp({
    */
   const [group, setGroup] = useState<number | null>(null)
   const [groupBusy, setGroupBusy] = useState(false)
+
+  /**
+   * t54：磁贴的外观（透明度）与"是否可编辑"都来自应用偏好。
+   *
+   * 磁贴是**独立 WebView**（各自一份 JS 上下文），但它与主窗口**同源**、共享同一份
+   * localStorage；而 `useAppPreferences` 内部订阅了 `storage` 事件 ⇒
+   * 主窗口一改设置，磁贴会自动跟着变，**不需要任何额外的跨窗口消息**。
+   */
+  const preferences = useAppPreferences()
 
   useEffect(() => {
     let cancelled = false
@@ -440,6 +450,10 @@ export function TileApp({
   return (
     <div
       data-zj-tile=""
+      data-zj-tile-opacity={String(preferences.tileOpacity)}
+      data-zj-tile-editable={preferences.tileEditable ? 'on' : 'off'}
+      // t54：透明度作用于整枚磁贴（窗口本身已是 transparent，所以低不透明度能透出桌面）
+      style={{ opacity: preferences.tileOpacity }}
       className="zj-tile flex h-full min-h-0 flex-col overflow-hidden bg-bg text-text"
     >
       {/* 拖拽区：deep = 子树内任意位置可拖，按钮自动让路（见 Titlebar.tsx 的说明） */}
@@ -448,7 +462,10 @@ export function TileApp({
         data-zj-tile-header=""
         className="flex h-8 shrink-0 select-none items-center gap-2 border-b border-border bg-surface-2 pl-2 pr-1"
       >
-        <span className="min-w-0 flex-1 truncate text-2xs text-muted">纸笺磁贴</span>
+        {/* t54：只读时把状态写在标题里 —— 否则用户点了正文改不动会以为"卡住了" */}
+        <span className="min-w-0 flex-1 truncate text-2xs text-muted">
+          {preferences.tileEditable ? '纸笺磁贴' : '纸笺磁贴 · 只读'}
+        </span>
         {/* t47：取消吸附 —— **只在真的吸在一组时**出现（读不到状态时也不显示）。
             拖动时"拖开即分开"是隐式解组，这个按钮是显式的兜底（用户 Q1 选了"两者都要"）。 */}
         {group !== null && group > 0 ? (
@@ -516,6 +533,7 @@ export function TileApp({
             bare
             inputSize="sm"
             value={draft.title}
+            readOnly={!preferences.tileEditable}
             onChange={(event) => handleTitleChange(event.target.value)}
             onBlur={() => flushRef.current()}
             placeholder="无标题"
@@ -530,6 +548,7 @@ export function TileApp({
             onChange={handleContentChange}
             onSaveRequest={() => flushRef.current()}
             placeholder="写点什么…"
+            readOnly={!preferences.tileEditable}
             autoFocus={false}
             className="min-h-0 flex-1"
           />

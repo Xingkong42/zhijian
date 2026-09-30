@@ -43,6 +43,9 @@ import { GLOBAL_SHORTCUTS, checkGlobalShortcut, type ShortcutRegistrationState }
 import {
   CONTENT_FONT_SIZE_OPTIONS,
   SORT_BY_OPTIONS,
+  STARTUP_VIEW_MODE_OPTIONS,
+  TILE_OPACITY_MAX,
+  TILE_OPACITY_MIN,
   effectiveContentFontSizePx,
   useAppPreferences,
   type ContentFontSize,
@@ -89,6 +92,7 @@ import {
   IconButton,
   ScrollArea,
   Separator,
+  Slider,
   Switch,
   Tooltip,
 } from '@/components/ui'
@@ -115,6 +119,13 @@ import {
   readRustTileSnap,
   syncTileSnapPreference,
 } from './tileSnap'
+import {
+  PINNED_TILES_HIDABLE_HINT,
+  PINNED_TILES_HIDABLE_LABEL,
+  isPinnedTilesHidableDrifted,
+  readRustPinnedTilesHidable,
+  syncPinnedTilesHidablePreference,
+} from './tileBehavior'
 import { ModeToggle } from './ModeToggle'
 import { ThemePicker } from './ThemePicker'
 
@@ -506,6 +517,40 @@ export function SettingsPanel(props: SettingsPanelExtendedProps = {}) {
 
   /** 吸附开关是否出现「后端行为值 ≠ 本机偏好」（仅诊断展示，不自动改写后端） */
   const tileSnapDrifted = isTileSnapDrifted(rustTileSnap, preferences.tileSnap)
+
+  /* ------------------- t54：固定磁贴可被隐藏（需下发 Rust） ------------------- */
+
+  /** Rust 侧的「固定磁贴可被隐藏」值（null = 没读到，不显示告警） */
+  const [rustPinnedHidable, setRustPinnedHidable] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    if (!open || !isTauri) return
+    let cancelled = false
+    void (async () => {
+      const value = await readRustPinnedTilesHidable()
+      if (!cancelled) setRustPinnedHidable(value)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [open, preferences.pinnedTilesHidable])
+
+  /** t54：切换开关 —— 两条路都走：localStorage（持久化）+ Rust（行为） */
+  const handlePinnedHidableChange = useCallback(
+    (value: boolean) => {
+      preferences.setPinnedTilesHidable(value)
+      void (async () => {
+        const result = await syncPinnedTilesHidablePreference(value)
+        if (result.synced) setRustPinnedHidable(result.value)
+      })()
+    },
+    [preferences],
+  )
+
+  const pinnedHidableDrifted = isPinnedTilesHidableDrifted(
+    rustPinnedHidable,
+    preferences.pinnedTilesHidable,
+  )
 
   /* ------------------- t17：快捷键同步 / 数据位置 / 索引 ------------------- */
 
@@ -934,6 +979,63 @@ export function SettingsPanel(props: SettingsPanelExtendedProps = {}) {
               </div>
             </div>
 
+            {/* t54：启动时的显示模式（只影响下次启动的初始模式，不写回本次浏览状态） */}
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-ui text-muted">启动时的显示模式</span>
+                <span className="text-2xs text-muted" data-zj="startup-mode-note">
+                  下次启动生效
+                </span>
+              </div>
+              <div
+                role="group"
+                aria-label="启动时的显示模式"
+                className="flex w-fit items-center gap-1 rounded-zj bg-surface-2 p-1"
+              >
+                {STARTUP_VIEW_MODE_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    aria-pressed={preferences.startupViewMode === option.value}
+                    data-active={preferences.startupViewMode === option.value}
+                    data-zj="startup-mode-option"
+                    title={option.hint}
+                    onClick={() => preferences.setStartupViewMode(option.value)}
+                    className={cn(
+                      'inline-flex h-7 select-none items-center gap-1 rounded-zj-sm px-3 text-ui font-medium',
+                      'transition-colors duration-150 ease-out zj-focus-ring',
+                      'data-[active=true]:bg-selection data-[active=true]:text-text',
+                      'text-muted hover:bg-hover hover:text-text',
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* t54：磁贴透明度（只作用于磁贴窗口，主窗口不受影响；改完立即生效） */}
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-ui text-muted">磁贴透明度</span>
+                <span className="font-mono text-2xs text-muted" data-zj="tile-opacity-value">
+                  {Math.round(preferences.tileOpacity * 100)}%
+                </span>
+              </div>
+              <Slider
+                value={preferences.tileOpacity}
+                min={TILE_OPACITY_MIN}
+                max={TILE_OPACITY_MAX}
+                step={0.05}
+                label="磁贴透明度"
+                data-zj="tile-opacity-slider"
+                onValueChange={(value) => preferences.setTileOpacity(value)}
+              />
+              <p className="text-meta text-muted">
+                仅影响桌面磁贴；100% 为完全不透明，最低 {Math.round(TILE_OPACITY_MIN * 100)}%（再低就找不着磁贴了）。
+              </p>
+            </div>
+
           </section>
 
           <Separator />
@@ -1010,6 +1112,44 @@ export function SettingsPanel(props: SettingsPanelExtendedProps = {}) {
               >
                 ⚠️ 检测到后端行为值与本机偏好不一致（后端 {String(rustTileSnap)}，本机{' '}
                 {String(preferences.tileSnap)}）：请重新切换一次本开关以重新下发。
+              </p>
+            ) : null}
+
+            {/* ---------------- t54：磁贴编辑与固定磁贴显隐 ---------------- */}
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <p className="text-ui text-text">允许编辑磁贴</p>
+                <p className="text-meta text-muted">
+                  关闭后桌面磁贴里的标题与正文变为只读（防误改）；主窗口里仍可正常编辑。
+                </p>
+              </div>
+              <Switch
+                data-zj="tile-editable-toggle"
+                checked={preferences.tileEditable}
+                label="允许编辑磁贴"
+                onCheckedChange={(value) => preferences.setTileEditable(value)}
+              />
+            </div>
+
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <p className="text-ui text-text">{PINNED_TILES_HIDABLE_LABEL}</p>
+                <p className="text-meta text-muted">{PINNED_TILES_HIDABLE_HINT}</p>
+              </div>
+              <Switch
+                data-zj="pinned-hidable-toggle"
+                checked={preferences.pinnedTilesHidable}
+                label={PINNED_TILES_HIDABLE_LABEL}
+                onCheckedChange={handlePinnedHidableChange}
+              />
+            </div>
+            {pinnedHidableDrifted ? (
+              <p
+                data-zj="pinned-hidable-drift"
+                className="rounded-zj border border-accent bg-selection px-3 py-2 text-meta text-text"
+              >
+                ⚠️ 检测到后端行为值与本机偏好不一致（后端 {String(rustPinnedHidable)}，本机{' '}
+                {String(preferences.pinnedTilesHidable)}）：请重新切换一次本开关以重新下发。
               </p>
             ) : null}
 

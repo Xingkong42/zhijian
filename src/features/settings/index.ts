@@ -116,6 +116,14 @@ export {
   type TileSnapSyncResult,
 } from './tileSnap'
 export {
+  PINNED_TILES_HIDABLE_HINT,
+  PINNED_TILES_HIDABLE_LABEL,
+  isPinnedTilesHidableDrifted,
+  readRustPinnedTilesHidable,
+  syncPinnedTilesHidablePreference,
+  type PinnedTilesHidableSyncResult,
+} from './tileBehavior'
+export {
   BACKUP_FORMAT_VERSION,
   BACKUP_KIND,
   FILESYSTEM_UNAVAILABLE_HINT,

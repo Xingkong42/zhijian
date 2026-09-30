@@ -27,6 +27,7 @@ import {
   CloseToTrayNotice,
   importNotesFromDialog,
   syncShortcutBindingsOnStartup,
+  syncPinnedTilesHidablePreference,
   syncTileSnapPreference,
 } from '@/features/settings'
 import {
@@ -41,7 +42,7 @@ import { initDb, onIndexMutated } from '@/db'
 import { foldersRepo } from '@/db/folders'
 import { notesRepo } from '@/db/notes'
 import { tagsRepo } from '@/db/tags'
-import { readDefaultSort } from '@/lib/appPreferences'
+import { readDefaultSort, readStartupViewMode } from '@/lib/appPreferences'
 import { exportNote } from '@/lib/export'
 import { bindGlobalHotkeys, bindShortcuts } from '@/lib/hotkeys'
 import { isTauri, onNoteChanged, onTilesChanged } from '@/lib/tauri'
@@ -169,7 +170,16 @@ function AppShell() {
   const meta = useMeta()
   const titlebar = useTitlebarState()
 
-  const [editorMode, setEditorMode] = useState<'edit' | 'preview' | 'split'>('split')
+  /**
+   * t54：启动时的显示模式来自偏好（编辑 / 分栏 / 预览）。
+   *
+   * 只作为**初始值**：用户之后在标题栏切换时按当下的选择走、不写回偏好 ——
+   * 否则"我特意设的启动模式"会被一次临时切换悄悄改掉。
+   * 用惰性初始化读取，避免每次渲染都碰 localStorage。
+   */
+  const [editorMode, setEditorMode] = useState<'edit' | 'preview' | 'split'>(() =>
+    readStartupViewMode(),
+  )
   const [bootState, setBootState] = useState<'booting' | 'ready' | 'preview' | 'failed'>('booting')
   const [bootError, setBootError] = useState<string | null>(null)
   /** D2：Ctrl+Delete 的待确认目标（删除是不可逆的用户动作，必须二次确认） */
@@ -253,6 +263,10 @@ function AppShell() {
         // 与上面快捷键、以及 §4.13「关闭到托盘偏好启动时同步」是同一模式：
         // **localStorage 是权威，启动即下发**。这里刻意不 await：失败只 warn，不阻塞启动。
         void syncTileSnapPreference()
+        // 6) t54：把「已固定的磁贴是否允许被隐藏」下发给 Rust。
+        //    为什么必须下发：全部显隐由快捷键/托盘直接调 Rust 的 set_all_visible_impl()，
+        //    压根不经过前端 —— 这个开关的值只能由 Rust 拿到。
+        void syncPinnedTilesHidablePreference()
       } catch (error) {
         if (cancelled) return
         // 浏览器预览模式（pnpm dev）没有 SQLite，这不是故障：明确区分，避免误报启动失败

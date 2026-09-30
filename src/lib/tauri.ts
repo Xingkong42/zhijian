@@ -15,7 +15,7 @@ export const isTauri: boolean =
 export const APP_META = {
   productName: '纸笺',
   identifier: 'com.zhijian.app',
-  version: '0.2.1',
+  version: '0.2.2',
   /** SQLite 迁移表名与库文件名（与 tauri.conf.json 的 plugins.sql 对应） */
   dbUrl: 'sqlite:zhijian.db',
   migrationTable: '_zj_migrations',
@@ -130,6 +130,11 @@ export const COMMANDS = {
   setTileSnap: 'cmd_set_tile_snap',
   /** 读取当前「磁贴吸附」开关（诊断 / 启动对账用） */
   tileSnapEnabled: 'cmd_tile_snap_enabled',
+  /* ---- t54：固定磁贴是否可被「全部显隐」隐藏 ---- */
+  /** 下发该开关（参数 `{ enabled: boolean }`，返回生效后的 `boolean`） */
+  setTileHidePinned: 'cmd_set_tile_hide_pinned',
+  /** 读取该开关（诊断 / 启动对账用） */
+  tileHidePinned: 'cmd_tile_hide_pinned',
   /* ---- t19 桌面便签磁贴 ---- */
   /** 钉住/取消磁贴（参数 `{ noteId: string }`，返回**新状态** `boolean`：true = 已钉住） */
   toggleTile: 'cmd_toggle_tile',
@@ -247,6 +252,30 @@ export async function readTileSnapFromRust(): Promise<boolean | null> {
   if (!isTauri) return null
   const { invoke } = await import('@tauri-apps/api/core')
   return invoke<boolean>(COMMANDS.tileSnapEnabled)
+}
+
+/* ------------------ t54：固定磁贴是否可被「全部显隐」隐藏 ------------------ */
+
+/**
+ * 下发「已固定的磁贴是否允许被全部显隐隐藏」给 Rust（`tiles::TILE_HIDE_PINNED`）。
+ *
+ * 调用时机与 `setTileSnap` 相同（**两者都必须**）：
+ *  1. 应用启动时同步一次（Rust 读不到 WebView 的 localStorage）；
+ *  2. 设置面板开关变更时立即下发。
+ *
+ * ⚠️ 这条必须下发 Rust：全部显隐由快捷键/托盘直接调 Rust，不经过前端。
+ */
+export async function setTileHidePinned(enabled: boolean): Promise<boolean> {
+  if (!isTauri) return false
+  const { invoke } = await import('@tauri-apps/api/core')
+  return invoke<boolean>(COMMANDS.setTileHidePinned, { enabled })
+}
+
+/** 读取 Rust 侧当前的「固定磁贴可被隐藏」值（诊断 / 对账用） */
+export async function readTileHidePinnedFromRust(): Promise<boolean | null> {
+  if (!isTauri) return null
+  const { invoke } = await import('@tauri-apps/api/core')
+  return invoke<boolean>(COMMANDS.tileHidePinned)
 }
 
 /**

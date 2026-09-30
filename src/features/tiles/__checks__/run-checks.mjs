@@ -717,6 +717,23 @@ async function loadTsxModule(modulePath) {
   /* ------------------------------ t52：吸附开关 ------------------------------ */
 
   check(
+    't54：「固定磁贴可被隐藏」默认关闭，且 gate 落在 set_all_visible_impl 上',
+    /static TILE_HIDE_PINNED:\s*AtomicBool\s*=\s*AtomicBool::new\(false\)/.test(tilesRs) &&
+      (() => {
+        const body = bodyAfter(tilesRs, /fn set_all_visible_impl\s*<[^>]*>\s*\([^)]*\)[^{]*\{/)
+        return Boolean(body) && /pinned && !tile_hide_pinned\(\)/.test(body)
+      })(),
+    '默认必须是 false（t46 的用户要求：固定磁贴永远留在桌面）；gate 丢了就等于开关无效，用户会以为"改了没反应"',
+  )
+  check(
+    't54：两个命令都已实现且在 lib.rs 注册',
+    /pub fn cmd_set_tile_hide_pinned\(enabled: bool\) -> bool/.test(tilesRs) &&
+      /pub fn cmd_tile_hide_pinned\(\) -> bool/.test(tilesRs) &&
+      /tiles::cmd_set_tile_hide_pinned,/.test(read('src-tauri/src/lib.rs')) &&
+      /tiles::cmd_tile_hide_pinned,/.test(read('src-tauri/src/lib.rs')),
+    '命令没注册时前端 invoke 直接失败（设置面板那条会永远显示"未生效"）',
+  )
+  check(
     't52：吸附开关的 gate 必须在**两条**入口上（吸附判定 + 组位移传播）',
     (() => {
       const snapBody = bodyAfter(tilesRs, /fn apply_snap_after_move_inner\s*<[^>]*>\s*\([^)]*\)[^{]*\{/)

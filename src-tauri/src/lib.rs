@@ -188,6 +188,9 @@ pub fn run() {
             // t52：「磁贴吸附」总开关（前端偏好 `zhijian.tileSnap` 的行为副本）
             tiles::cmd_set_tile_snap,
             tiles::cmd_tile_snap_enabled,
+            // t54：已固定的磁贴是否允许被「全部显隐」隐藏
+            tiles::cmd_set_tile_hide_pinned,
+            tiles::cmd_tile_hide_pinned,
             // t44：快速笔记（全局唯一的短命捕捉窗）
             quick_note::cmd_open_quick_note,
         ])

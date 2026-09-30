@@ -1626,6 +1626,106 @@ await check('t52：App 启动流程会下发一次（否则重启后用户关掉
   assert(/setTileSnap: 'cmd_set_tile_snap'/.test(tauri), 'COMMANDS 缺 setTileSnap')
   assert(/tileSnapEnabled: 'cmd_tile_snap_enabled'/.test(tauri), 'COMMANDS 缺 tileSnapEnabled')
 })
+/* ------------------------------------------------------------------ */
+/* L. 启动模式与磁贴选项（t54）                                          */
+/*    需求：① 启动显示模式可选（编辑/分栏/预览）② 磁贴透明度可调          */
+/*          ③ 是否允许编辑磁贴 ④ 已固定磁贴是否允许被隐藏                */
+/*    复用 K 组定义的 readT52 / stripT52 / blockAfter 三个 helper。       */
+/* ------------------------------------------------------------------ */
+
+group('L. 启动模式与磁贴选项（t54）')
+
+await check('t54：四个偏好键 / 默认值 / 读写函数齐全，且默认值都"不变观感"', () => {
+  const prefs = readT52('src/lib/appPreferences.ts')
+  assert(prefs.length > 0, 'appPreferences.ts 读不到（防断言空跑）')
+  for (const key of ['startupViewMode', 'tileOpacity', 'tileEditable', 'pinnedTilesHidable']) {
+    assert(
+      prefs.includes(`${key}: 'zhijian.${key}'`),
+      `PREFERENCE_KEYS 缺 ${key}`,
+    )
+  }
+  // 默认值必须与本次改动之前的观感一致，否则升级后界面/磁贴会突然变样
+  assert(/startupViewMode: 'split',/.test(prefs), "默认启动模式必须是 'split'（原本就是分栏）")
+  assert(/tileOpacity: 1,/.test(prefs), '默认透明度必须是 1（原本不透明）')
+  assert(/tileEditable: true,/.test(prefs), '默认必须允许编辑（磁贴本来就是随手改的）')
+  assert(
+    /pinnedTilesHidable: false,/.test(prefs),
+    '默认必须 false —— 沿用 t46 的用户要求「固定的磁贴永远留在桌面上」',
+  )
+  assert(/export function clampTileOpacity/.test(prefs), '缺 clampTileOpacity（下限保护）')
+  assert(/TILE_OPACITY_MIN = 0\.3/.test(prefs), '透明度下限应为 0.3（再低就找不着磁贴）')
+  assert(/export const STARTUP_VIEW_MODE_OPTIONS/.test(prefs), '缺设置面板用的展示选项')
+})
+
+await check('t54：设置面板四项控件齐全，需下发 Rust 的那条真的下发了', () => {
+  const panel = stripT52(readT52('src/features/settings/SettingsPanel.tsx'))
+  assert(panel.length > 0, 'SettingsPanel.tsx 读不到')
+  assert(/data-zj="startup-mode-option"/.test(panel), '缺「启动显示模式」选项按钮')
+  assert(/preferences\.setStartupViewMode\(/.test(panel), '启动模式必须落库')
+  assert(/data-zj="tile-opacity-slider"/.test(panel), '缺「磁贴透明度」滑块')
+  assert(/preferences\.setTileOpacity\(/.test(panel), '透明度滑块必须落库')
+  assert(/data-zj="tile-editable-toggle"/.test(panel), '缺「允许编辑磁贴」开关')
+  assert(/data-zj="pinned-hidable-toggle"/.test(panel), '缺「允许隐藏已固定磁贴」开关')
+  assert(
+    /syncPinnedTilesHidablePreference\(value\)/.test(panel),
+    '这条必须下发 Rust —— 全部显隐由快捷键/托盘直接调 Rust，不经过前端；只落库等于开关无效',
+  )
+})
+
+await check('t54：启动模式真的被用来初始化编辑器；固定可隐藏真的在启动时下发', () => {
+  const app = readT52('src/App.tsx')
+  assert(app.length > 0, 'App.tsx 读不到')
+  const appCode = stripT52(app)
+  assert(/readStartupViewMode\(\)/.test(appCode), 'App 没读启动显示模式（那这个设置就是假的）')
+  assert(
+    /useState<'edit' \| 'preview' \| 'split'>\(\s*\(\)\s*=>\s*readStartupViewMode\(\)/.test(
+      appCode.replace(/\n\s*/g, ' '),
+    ),
+    '启动模式必须作为 editorMode 的初始值（惰性初始化）—— 只在别处读一下不影响启动观感',
+  )
+  /**
+   * ⚠️ 锚点必须落在**原文**上（那段注释分隔线），而断言再对**去注释后的块**匹配。
+   * 第一版写成 `blockAfter(appCode, '/* --- 启动流程')` —— appCode 已被 stripT52 去掉注释，
+   * 锚点自然找不到，于是这条断言在正常态就先炸（不是变异测试抓的，是它自己先红）。
+   */
+  const bootRaw = blockAfter(app, '/* ------------------------------ 启动流程')
+  assert(Boolean(bootRaw), '找不到「启动流程」那段 effect（锚点失效，断言会空跑）')
+  assert(
+    /syncPinnedTilesHidablePreference\(\)/.test(stripT52(bootRaw)),
+    '启动流程没有下发「固定磁贴可被隐藏」—— Rust 是进程内状态，不下发就会回落默认 false',
+  )
+})
+
+await check('t54：localStorage 为空时，四个偏好都回落到"不变观感"的默认值（运行时实测）', () =>
+  /**
+   * 这条断言存在的唯一理由：**源码里写着默认值 ≠ 运行时默认值**。
+   * 实际踩过：`readTileOpacityRaw` 用 `Number.isFinite(Number(raw))` 判空，
+   * 而 `Number(null) === 0` 是有限数 ⇒ 被下限 clamp 成 0.3，
+   * 于是"默认完全不透明"变成了"默认 30% 透明"（真机 UI 上滑块停在了最左）。
+   * 静态断言只比对源码文本（`tileOpacity: 1,`）永远抓不到，所以这里必须**真读一次**。
+   */
+  withStoredPrefs([], async () => {
+    assertEqual(prefs.readStartupViewMode(), 'split', '默认应为分栏（改动前的观感）')
+    assertEqual(prefs.readTileOpacity(), 1, '默认应为 1（完全不透明）')
+    assertEqual(prefs.readTileEditable(), true, '默认应允许编辑磁贴')
+    assertEqual(prefs.readPinnedTilesHidable(), false, '默认应为 false（固定磁贴不参与全部显隐）')
+  }),
+)
+
+await check('t54：磁贴窗口真的用了这两个偏好（透明度 + 两处只读）', () => {
+  const tile = stripT52(readT52('src/features/tiles/TileApp.tsx'))
+  assert(/useAppPreferences\(\)/.test(tile), '磁贴没有读应用偏好（跨窗口靠同源 localStorage + storage 事件自动同步）')
+  assert(
+    /opacity: preferences\.tileOpacity/.test(tile.replace(/\n\s*/g, ' ')),
+    '磁贴没有把透明度应用到容器上',
+  )
+  assert(
+    (tile.match(/readOnly=\{!preferences\.tileEditable\}/g) ?? []).length === 2,
+    '磁贴的标题与正文都要能只读（只改一处会变成"半只读"：标题能改、正文不能改）',
+  )
+  assert(/只读/.test(tile), '只读时必须有可见提示，否则用户点了改不动会以为界面卡住')
+})
+
 /* ---------- 5) 汇总 ---------- */
 
 const failed = results.filter((item) => !item.ok)

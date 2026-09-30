@@ -67,6 +67,26 @@ pub fn set_tile_snap_preference(enabled: bool) {
     TILE_SNAP.store(enabled, Ordering::SeqCst);
 }
 
+/// t54：「已固定的磁贴是否允许被『全部显隐』隐藏」开关（进程内，默认 `false`）。
+///
+/// 默认 `false` = 沿用 t46 的用户要求：「固定的磁贴永远留在桌面上，快捷键只影响临时磁贴」。
+/// 用户显式打开后，`set_all_visible_impl` 不再跳过固定磁贴 —— 这是一条**用户可选**的行为，
+/// 所以做成开关，而不是改掉原有的默认语义。
+///
+/// 权威源与其它偏好一致：持久化在前端 localStorage（`zhijian.pinnedTilesHidable`），
+/// Rust 只是行为副本，启动时与变更时由前端下发（`features/settings/tileBehavior.ts`）。
+static TILE_HIDE_PINNED: AtomicBool = AtomicBool::new(false);
+
+/// 「固定磁贴是否可被隐藏」当前值
+pub fn tile_hide_pinned() -> bool {
+    TILE_HIDE_PINNED.load(Ordering::SeqCst)
+}
+
+/// 设置该开关（IPC 命令与单测共用）
+pub fn set_tile_hide_pinned_preference(enabled: bool) {
+    TILE_HIDE_PINNED.store(enabled, Ordering::SeqCst);
+}
+
 /// 几何落盘的**静默期**：最后一次移动/缩放之后等这么久才写磁盘。
 ///
 /// 拖动时 `WindowEvent::Moved` 会高频触发；若每次都写盘会造成明显 I/O 与卡顿。
@@ -794,8 +814,9 @@ pub fn set_all_visible_impl<R: Runtime>(app: &AppHandle<R>, visible: Option<bool
         .into_iter()
         .filter_map(|(label, window)| {
             let note_id = note_id_from_label(&label)?;
-            // 固定的磁贴：永远留在桌面上，不参与"全部显隐"
-            if geometry_for(app, &note_id).pinned {
+            // 固定的磁贴：默认不参与"全部显隐"（t46 的用户要求）；
+            // 用户在设置里打开「允许隐藏已固定的磁贴」后（t54），它也一起动。
+            if geometry_for(app, &note_id).pinned && !tile_hide_pinned() {
                 return None;
             }
             Some(window)
@@ -1431,6 +1452,19 @@ pub fn cmd_tile_snap_enabled() -> bool {
     tile_snap_enabled()
 }
 
+/// t54：下发「已固定的磁贴是否允许被全部显隐隐藏」（参数 `{ enabled: boolean }`，返回生效值）
+#[tauri::command]
+pub fn cmd_set_tile_hide_pinned(enabled: bool) -> bool {
+    set_tile_hide_pinned_preference(enabled);
+    tile_hide_pinned()
+}
+
+/// t54：读取该开关当前值（启动对账 / 诊断用）
+#[tauri::command]
+pub fn cmd_tile_hide_pinned() -> bool {
+    tile_hide_pinned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1453,6 +1487,25 @@ mod tests {
         assert!(cmd_set_tile_snap(true), "设为开启后应回读 true");
         assert!(cmd_tile_snap_enabled(), "读取命令应返回当前值");
         set_tile_snap_preference(true); // 恢复默认，避免影响其它用例
+    }
+
+    /// t54：「固定磁贴可被隐藏」默认关闭 —— 保持 t46 的用户要求（固定磁贴永远留在桌面）
+    #[test]
+    fn tile_hide_pinned_defaults_to_disabled() {
+        if tile_hide_pinned() {
+            set_tile_hide_pinned_preference(false);
+        }
+        assert!(!tile_hide_pinned(), "默认应为 false（固定磁贴不参与全部显隐）");
+    }
+
+    /// t54：该开关可读写，且命令返回**生效值**
+    #[test]
+    fn tile_hide_pinned_toggle_is_readable() {
+        assert!(cmd_set_tile_hide_pinned(true), "设为可隐藏后应回读 true");
+        assert!(tile_hide_pinned());
+        assert!(!cmd_set_tile_hide_pinned(false), "设回不可隐藏后应回读 false");
+        assert!(!cmd_tile_hide_pinned());
+        set_tile_hide_pinned_preference(false); // 恢复默认
     }
 
     #[test]

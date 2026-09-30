@@ -7,6 +7,10 @@
  * 主题自身已由 `themeStore` 用 `zj:theme` 承担，本文件承担设置面板其余偏好：
  *   - `zhijian.closeToTray`     关闭按钮是否隐藏到托盘（后台常驻）
  *   - `zhijian.tileSnap`        桌面磁贴是否吸附成组（t52）
+ *   - `zhijian.startupViewMode` 启动时主界面的显示模式：编辑 / 分栏 / 预览（t54）
+ *   - `zhijian.tileOpacity`     磁贴不透明度 0.3~1（t54）
+ *   - `zhijian.tileEditable`    是否允许在磁贴里编辑内容（t54）
+ *   - `zhijian.pinnedTilesHidable` 已固定的磁贴是否允许被「全部显隐」隐藏（t54）
  *   - `zhijian.defaultSort`     笔记列表默认排序
  *   - `zhijian.contentFontSize` 正文/预览字号档位（t17）
  *   - `zhijian.shortcuts`       自定义全局快捷键（t17，JSON）
@@ -58,11 +62,36 @@ export interface AppPreferences {
    * **已有的组号保留** —— 关一次开关不该毁掉用户已经摆好的布局。
    */
   tileSnap: boolean
+  /**
+   * 启动时主界面的显示模式（t54）。
+   *
+   * 只决定**打开软件时**的初始模式：用户在标题栏切换后按当下的选择走、**不写回**本偏好，
+   * 这样「我特意设的启动模式」不会被一次临时切换改掉。
+   */
+  startupViewMode: StartupViewMode
+  /** 磁贴不透明度（t54）：0.3~1，`1` = 完全不透明。只作用于磁贴窗口，主窗口不受影响。 */
+  tileOpacity: number
+  /** 是否允许在磁贴里编辑（t54）：`false` 时磁贴内的编辑器与标题只读（防误改）。 */
+  tileEditable: boolean
+  /**
+   * 已固定的磁贴是否允许被「显示/隐藏全部磁贴」隐藏（t54）。
+   *
+   * 默认 `false` = 沿用 t46 的用户要求「固定的磁贴永远留在桌面上」；
+   * 用户显式打开后，固定磁贴才参与全部显隐。
+   */
+  pinnedTilesHidable: boolean
 }
+
+/** 启动显示模式的取值域（t54，与 EditorPane 的 `EditorMode` 同构） */
+export type StartupViewMode = 'edit' | 'preview' | 'split'
 
 export const PREFERENCE_KEYS = {
   closeToTray: 'zhijian.closeToTray',
   tileSnap: 'zhijian.tileSnap',
+  startupViewMode: 'zhijian.startupViewMode',
+  tileOpacity: 'zhijian.tileOpacity',
+  tileEditable: 'zhijian.tileEditable',
+  pinnedTilesHidable: 'zhijian.pinnedTilesHidable',
   autostart: 'zhijian.autostart',
   defaultSort: 'zhijian.defaultSort',
   contentFontSize: 'zhijian.contentFontSize',
@@ -75,12 +104,31 @@ export const APP_PREFERENCE_DEFAULTS: AppPreferences = {
   closeToTray: true,
   // 默认吸附：这是磁贴一直以来的行为，改成默认关闭会让老用户以为功能坏了
   tileSnap: true,
+  // 默认分栏：与本次改动之前的观感一致（升级后界面不会突然变样）
+  startupViewMode: 'split',
+  // 默认完全不透明
+  tileOpacity: 1,
+  // 默认可编辑（磁贴本来就是用来随手改的）
+  tileEditable: true,
+  // 默认 false = 沿用 t46 的语义「固定的磁贴不参与全部显隐」
+  pinnedTilesHidable: false,
   autostart: false,
   defaultSort: 'order',
   contentFontSize: 'medium',
 }
 
 const SORT_BY_VALUES: readonly NoteSortBy[] = ['order', 'updatedAt', 'createdAt', 'title']
+
+/** 启动显示模式的展示选项（t54，设置面板用；与 `StartupViewMode` 取值域一一对应） */
+export const STARTUP_VIEW_MODE_OPTIONS: readonly {
+  value: StartupViewMode
+  label: string
+  hint: string
+}[] = [
+  { value: 'edit', label: '编辑', hint: '启动时只显示编辑器' },
+  { value: 'split', label: '分栏', hint: '启动时编辑 + 预览并排（默认）' },
+  { value: 'preview', label: '预览', hint: '启动时只显示渲染后的预览' },
+]
 
 /** 设置面板展示用的排序选项（中文标签与 repo 的 sortBy 取值一一对应） */
 export const SORT_BY_OPTIONS: readonly { value: NoteSortBy; label: string }[] = [
@@ -136,6 +184,28 @@ function readBool(key: string, fallback: boolean): boolean {
   return fallback
 }
 
+/** 启动显示模式：只读单个键（供 readPreferences 内部使用，避免递归） */
+function readStartupViewModeRaw(): StartupViewMode {
+  const raw = readRaw(PREFERENCE_KEYS.startupViewMode)
+  return isStartupViewMode(raw) ? raw : APP_PREFERENCE_DEFAULTS.startupViewMode
+}
+
+/**
+ * 磁贴不透明度：只读单个键并夹紧（同上，避免递归）。
+ *
+ * ⚠️ 这里踩过一个真实的坑，务必保留 `raw === null` 这一判空：
+ * 键不存在时 `readRaw` 返回 `null`，而 **`Number(null) === 0` 是一个"有限数"**，
+ * 于是会被 `clampTileOpacity` 夹到下限 0.3 —— 源码里明明写着默认 `1`（不透明），
+ * 运行时却变成"默认 30% 透明"（升级后磁贴突然变淡）。
+ * 静态门禁只看源码文本，抓不到它；是**真机 UI 验证**（滑块初始位置停在最左）才暴露的。
+ */
+function readTileOpacityRaw(): number {
+  const raw = readRaw(PREFERENCE_KEYS.tileOpacity)
+  if (raw === null || raw.trim() === '') return APP_PREFERENCE_DEFAULTS.tileOpacity
+  const value = Number(raw)
+  return Number.isFinite(value) ? clampTileOpacity(value) : APP_PREFERENCE_DEFAULTS.tileOpacity
+}
+
 /** 读取全部偏好（任一键非法都回落到默认值） */
 export function readPreferences(): AppPreferences {
   const rawSort = readRaw(PREFERENCE_KEYS.defaultSort)
@@ -143,6 +213,13 @@ export function readPreferences(): AppPreferences {
   return {
     closeToTray: readBool(PREFERENCE_KEYS.closeToTray, APP_PREFERENCE_DEFAULTS.closeToTray),
     tileSnap: readBool(PREFERENCE_KEYS.tileSnap, APP_PREFERENCE_DEFAULTS.tileSnap),
+    startupViewMode: readStartupViewModeRaw(),
+    tileOpacity: readTileOpacityRaw(),
+    tileEditable: readBool(PREFERENCE_KEYS.tileEditable, APP_PREFERENCE_DEFAULTS.tileEditable),
+    pinnedTilesHidable: readBool(
+      PREFERENCE_KEYS.pinnedTilesHidable,
+      APP_PREFERENCE_DEFAULTS.pinnedTilesHidable,
+    ),
     autostart: readBool(PREFERENCE_KEYS.autostart, APP_PREFERENCE_DEFAULTS.autostart),
     defaultSort: isNoteSortBy(rawSort) ? rawSort : APP_PREFERENCE_DEFAULTS.defaultSort,
     contentFontSize: isContentFontSize(rawFont) ? rawFont : APP_PREFERENCE_DEFAULTS.contentFontSize,
@@ -156,6 +233,42 @@ export function readCloseToTray(): boolean {
 /** 桌面磁贴是否吸附成组（t52；行为侧见 `features/settings/tileSnap.ts`） */
 export function readTileSnap(): boolean {
   return readPreferences().tileSnap
+}
+
+/* ---------------------- t54：启动模式 / 磁贴外观与行为 ---------------------- */
+
+/** 启动显示模式的取值域校验（t54） */
+export function isStartupViewMode(value: unknown): value is StartupViewMode {
+  return value === 'edit' || value === 'preview' || value === 'split'
+}
+
+/**
+ * 磁贴透明度的安全区间（t54）。
+ *
+ * 下限 0.3 是刻意的：再低就几乎看不见，用户会以为"磁贴丢了"却找不到东西可点。
+ */
+export const TILE_OPACITY_MIN = 0.3
+export const TILE_OPACITY_MAX = 1
+
+export function clampTileOpacity(value: number): number {
+  if (!Number.isFinite(value)) return TILE_OPACITY_MAX
+  return Math.min(TILE_OPACITY_MAX, Math.max(TILE_OPACITY_MIN, value))
+}
+
+export function readStartupViewMode(): StartupViewMode {
+  return readPreferences().startupViewMode
+}
+
+export function readTileOpacity(): number {
+  return readPreferences().tileOpacity
+}
+
+export function readTileEditable(): boolean {
+  return readPreferences().tileEditable
+}
+
+export function readPinnedTilesHidable(): boolean {
+  return readPreferences().pinnedTilesHidable
 }
 
 /** 用户「希望」的开机自启（**非**系统事实来源，事实以 `isEnabled()` 为准） */
@@ -177,6 +290,22 @@ export function writeCloseToTray(value: boolean): void {
 
 export function writeTileSnap(value: boolean): void {
   writeRaw(PREFERENCE_KEYS.tileSnap, value ? 'true' : 'false')
+}
+
+export function writeStartupViewMode(value: StartupViewMode): void {
+  writeRaw(PREFERENCE_KEYS.startupViewMode, isStartupViewMode(value) ? value : 'split')
+}
+
+export function writeTileOpacity(value: number): void {
+  writeRaw(PREFERENCE_KEYS.tileOpacity, String(clampTileOpacity(value)))
+}
+
+export function writeTileEditable(value: boolean): void {
+  writeRaw(PREFERENCE_KEYS.tileEditable, value ? 'true' : 'false')
+}
+
+export function writePinnedTilesHidable(value: boolean): void {
+  writeRaw(PREFERENCE_KEYS.pinnedTilesHidable, value ? 'true' : 'false')
 }
 
 export function writeAutostartPreference(value: boolean): void {
@@ -377,6 +506,14 @@ export function useAppPreferences(): AppPreferences & {
   toggleCloseToTray: () => void
   /** t52：只落库磁贴吸附偏好；**行为下发**见 `features/settings/tileSnap.ts` */
   setTileSnap: (value: boolean) => void
+  /** t54：启动显示模式（只影响下次启动的初始模式） */
+  setStartupViewMode: (value: StartupViewMode) => void
+  /** t54：磁贴不透明度（0.3~1，自动夹紧） */
+  setTileOpacity: (value: number) => void
+  /** t54：是否允许编辑磁贴 */
+  setTileEditable: (value: boolean) => void
+  /** t54：固定磁贴是否可被隐藏（需下发 Rust，见 features/settings/tileBehavior.ts） */
+  setPinnedTilesHidable: (value: boolean) => void
   setDefaultSort: (value: NoteSortBy) => void
   setContentFontSize: (value: ContentFontSize) => void
   /** 只落库「用户希望的开机自启」；**系统侧设置**请用 features/settings/autostart.ts */
@@ -403,6 +540,26 @@ export function useAppPreferences(): AppPreferences & {
     emit()
   }, [])
 
+  const setStartupViewMode = useCallback((value: StartupViewMode) => {
+    writeStartupViewMode(value)
+    emit()
+  }, [])
+
+  const setTileOpacity = useCallback((value: number) => {
+    writeTileOpacity(value)
+    emit()
+  }, [])
+
+  const setTileEditable = useCallback((value: boolean) => {
+    writeTileEditable(value)
+    emit()
+  }, [])
+
+  const setPinnedTilesHidable = useCallback((value: boolean) => {
+    writePinnedTilesHidable(value)
+    emit()
+  }, [])
+
   const setDefaultSort = useCallback((value: NoteSortBy) => {
     writeDefaultSort(value)
     emit()
@@ -425,6 +582,10 @@ export function useAppPreferences(): AppPreferences & {
     setCloseToTray,
     toggleCloseToTray,
     setTileSnap,
+    setStartupViewMode,
+    setTileOpacity,
+    setTileEditable,
+    setPinnedTilesHidable,
     setDefaultSort,
     setContentFontSize,
     setAutostartPreference,

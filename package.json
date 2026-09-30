@@ -1,7 +1,7 @@
 {
   "name": "zhijian",
   "private": true,
-  "version": "0.2.1",
+  "version": "0.2.2",
   "type": "module",
   "description": "纸笺 — 极简淡雅便笺笔记桌面应用 (Tauri 2 + React 19)",
   "scripts": {
