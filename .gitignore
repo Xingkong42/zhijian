@@ -32,3 +32,6 @@ release/
 
 # pnpm 内容寻址存储：本机 store-dir 在项目外，这行防止在项目内跑 pnpm 时被误提交
 /.pnpm-store/
+
+# 验证用的截图（浏览器/真机取证），不进仓库
+browser-screenshots/
