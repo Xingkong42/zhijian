@@ -1736,6 +1736,17 @@ await check('t54：磁贴窗口真的用了这两个偏好（透明度 + 两处�
     /\[data-zj-tile-header\]/.test(tileCss),
     'tile.css 必须用属性选择器 [data-zj-tile-header] 命中标题栏（写成类名会静默失效）',
   )
+  /**
+   * ⚠️ 外层遮挡（第二版栽的坑，用户原话：「现在的磁贴透明度完全没有任何效果了」）：
+   * `index.css` 给 `body` 设了 `background: var(--zj-bg)`，而磁贴窗口加载的是同一份前端
+   * ⇒ 内层背景再透明，看到的也只是 body 的同色底 ⇒ 视觉上"完全没效果"，
+   * 可单量磁贴容器的计算值时 alpha 明明是对的（只量一层永远发现不了）。
+   * 所以磁贴窗口里 html/body 必须一并透明（用 :has(.zj-tile) 只在磁贴窗口生效）。
+   */
+  assert(
+    /html:has\(\.zj-tile\)/.test(tileCss) && /body:has\(\.zj-tile\)/.test(tileCss),
+    'tile.css 必须让 html/body 在磁贴窗口里透明 —— 否则内层透明只是透出 body 的不透明底，表现就是"调了完全没效果"',
+  )
   assert(
     !/^\s*opacity\s*:/m.test(tileCss),
     'tile.css 里出现了 opacity 声明（会把子元素一起调淡），应只用背景色的 alpha',
