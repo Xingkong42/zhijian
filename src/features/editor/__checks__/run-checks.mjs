@@ -601,16 +601,27 @@ check(
   (() => {
     const theme = readSel('src/features/editor/editorTheme.ts')
     if (theme.length === 0) return false // 防空跑：读不到就是失败
+    const important = theme.split("backgroundColor: 'var(--zj-editor-selection) !important'").length - 1
     return (
       /--zj-editor-selection/.test(theme) &&
       /color-mix\(in srgb, var\(--zj-accent\)/.test(theme) &&
+      /**
+       * ⚠️ 必须带 !important，且**聚焦与失焦两条都要**（各一处）。
+       * CodeMirror 的 baseTheme 自带两条选区色，特异性远高于我们的简写选择器：
+       *   · `&light.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground` → #d7d4f0（(0,6,0)）
+       *   · `&light .cm-selectionBackground` → #d9d9d9（(0,4,0)）
+       * 实测：不带 !important 时选区计算值是 rgb(215,212,240)（即那条 #d7d4f0），
+       * 于是"选中了却只是一层几乎看不出"的淡蓝 —— 用户两次反馈的正是这个。
+       */
+      important === 2 &&
       !/backgroundColor: 'var\(--zj-selection\)'/.test(theme)
     )
   })(),
-  '全局 --zj-selection 在默认主题下是 #f0e3bc、底色 #fdf8ec，对比度仅 1.21 —— 文字选中后几乎看不出反色' +
-    '（用户实测反馈：「被选中的文字不会反色显示或者反色与底色相同无法分辨」）。' +
-    '那个 token 还要给侧栏选中项、标题栏 hover 等"面状高亮"用，必须保持淡雅，' +
-    '所以编辑器选区单独用 --zj-editor-selection（强调色 70% 混合 → #d9bc62，实测清晰可辨、文字依旧清楚）。',
+  '两个原因叠加：① 全局 --zj-selection 在默认主题下是 #f0e3bc、底色 #fdf8ec，对比度仅 1.21（那个 token 还要给' +
+    '侧栏选中项、标题栏 hover 用，必须保持淡雅）；② 就算换成专用色，CodeMirror baseTheme 自带的两条选区色' +
+    '（#d7d4f0 / #d9d9d9）特异性高达 (0,6,0)/(0,4,0)，不加 !important 会被它们盖掉。' +
+    '所以编辑器选区 = --zj-editor-selection（强调色 70% 混合 → #d9bc62）+ !important。' +
+    '实测：修复前量到 rgb(215,212,240)（淡蓝，几乎看不出），修复后量到 rgb(217,188,98)（金黄，清晰可辨）。',
 )
 
 const failed = results.filter((result) => !result.ok)

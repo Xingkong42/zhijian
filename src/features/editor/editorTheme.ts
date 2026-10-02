@@ -75,12 +75,21 @@ export function editorTheme(): Extension {
       borderLeftColor: 'var(--zj-accent)',
       borderLeftWidth: '2px',
     },
+    /*
+     * ⚠️ 选区背景**必须 `!important`**：CodeMirror 的 baseTheme 里有两条自带选区色，特异性都远高于我们：
+     *   · `&light.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground { background: #d7d4f0 }` ← (0,6,0)
+     *   · `&light .cm-selectionBackground { background: #d9d9d9 }`                                    ← (0,4,0)
+     * 我们这种简写选择器（最多 (0,3,0)）**永远压不过它们**。
+     * 实测（用真实 CM 实例量计算值）：聚焦时选区背景是 `rgb(215, 212, 240)` —— 正是那条 `#d7d4f0`，
+     * 于是"选中了却只是一层几乎看不出的淡蓝"。用户反馈：「编辑栏内选中的文字完全看不出不同」
+     * （预览与磁贴用的是另一套选区样式，所以那里正常）。
+     */
     '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': {
-      backgroundColor: 'var(--zj-editor-selection)',
+      backgroundColor: 'var(--zj-editor-selection) !important',
     },
-    /* 失焦时的选区也要看得见（弱一档：同一个色 + 降透明度；不能退回那个对比度过低的全局 token） */
+    /* 失焦时的选区也要看得见（弱一档：同一个色 + 降透明度）—— 同样要压过 baseTheme */
     '&:not(.cm-focused) .cm-selectionBackground': {
-      backgroundColor: 'var(--zj-editor-selection)',
+      backgroundColor: 'var(--zj-editor-selection) !important',
       opacity: '0.6',
     },
 
