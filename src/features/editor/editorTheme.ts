@@ -94,8 +94,20 @@ export function editorTheme(): Extension {
     },
 
     /* ---------------- 当前行 / 行号 ---------------- */
+    /*
+     * ⚠️ 当前行底色**必须半透明**（t55 的第三层原因，也是最隐蔽的一层）。
+     *
+     * CodeMirror 把选区层放在内容层**之下**（实测 `.cm-selectionLayer` 是 `z-index: -2; position: absolute`），
+     * 而"被选中的那一行"在拖动选择时**同时就是当前行** ⇒ 当前行若用不透明底色，就会把选区整块盖住。
+     * 用户实测规律与之一一对应：
+     *   · 只选中一整行 ⇒ 不反色（整行都被当前行底色盖住）；
+     *   · 往下多拉一行 ⇒ 反色（露出来的是"非当前行"的那部分）；
+     *   · 选中文档最后一行 ⇒ 怎么都不反色（选中它时它必然是当前行）；
+     *   · 磁贴正常 —— 因为磁贴里这条早被置成 transparent（tile.css）。
+     * 所以这里用 55% 的 --zj-hover：既保留"当前行"的提示，又让选区透出来。
+     */
     '.cm-activeLine': {
-      backgroundColor: 'var(--zj-hover)',
+      backgroundColor: 'color-mix(in srgb, var(--zj-hover) 55%, transparent)',
     },
     '.cm-gutters': {
       backgroundColor: 'transparent',

@@ -624,6 +624,24 @@ check(
     '实测：修复前量到 rgb(215,212,240)（淡蓝，几乎看不出），修复后量到 rgb(217,188,98)（金黄，清晰可辨）。',
 )
 
+/* ---------------- t55：当前行高亮必须半透明（否则盖住"当前行被选中"的选区） ---------------- */
+
+check(
+  't55：当前行高亮必须半透明（不透明底色会盖住"当前行被选中"的那段选区）',
+  (() => {
+    const theme = readSel('src/features/editor/editorTheme.ts')
+    if (theme.length === 0) return false // 防空跑
+    // 只取 .cm-activeLine 那一段规则，避免"文件里别处出现过 transparent"造成假通过
+    const block = theme.match(/\.cm-activeLine':\s*\{[^}]*\}/)?.[0] ?? ''
+    return block.length > 0 && /transparent/.test(block)
+  })(),
+  'CodeMirror 把选区层画在内容层**之下**（实测 .cm-selectionLayer = z-index:-2; position:absolute）：' +
+    '拖动选择时"被选中的那一行"同时就是当前行，当前行若用不透明底色（原值 --zj-hover = rgb(243,234,213)）' +
+    '就会把选区整块盖住。用户实测规律与此一一对应：只选一整行不反色、往下多拉一行才反色、' +
+    '文档最后一行怎么都不反色；而磁贴一直正常 —— 因为磁贴里这条早被置为 transparent。' +
+    '所以主窗口这里也必须用带 transparent 的混合色（55% --zj-hover）。',
+)
+
 const failed = results.filter((result) => !result.ok)
 const passCount = results.length - failed.length
 console.log(`\n纸笺编辑器自检（命令 / Live Preview 纯函数断言）`)
