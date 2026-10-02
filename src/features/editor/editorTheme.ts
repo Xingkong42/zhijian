@@ -28,6 +28,19 @@ export function editorTheme(): Extension {
       height: '100%',
       color: 'var(--zj-text)',
       backgroundColor: 'transparent',
+      /**
+       * 编辑器**文字选区**的专用色（t55）。
+       *
+       * 为什么不直接用全局 `--zj-selection`：那个 token 还要承担侧栏选中项、标题栏 hover
+       * 等"面状高亮"，必须保持淡雅；而文字选区**必须一眼可辨**。
+       * 实测默认主题下它是 `#f0e3bc`、底色 `#fdf8ec`，对比度只有 **约 1.2** ——
+       * 用户反馈「选中一段文字，被选中的文字不会反色显示或者反色与底色相同无法分辨」，
+       * 就是对比度不足，而不是没有渲染。
+       *
+       * 这里用「该主题强调色 70% + 背景 30%」混合：任何主题/明暗下都与底色有明确区分，
+       * 又不引入新色系（选中的文字色仍是 `--zj-text`，在混合后的底上依旧清晰）。
+       */
+      '--zj-editor-selection': 'color-mix(in srgb, var(--zj-accent) 70%, var(--zj-bg))',
     },
     '&.cm-focused': {
       // 焦点环由外层容器/内容区自己表达，编辑器本体不画 outline
@@ -63,11 +76,11 @@ export function editorTheme(): Extension {
       borderLeftWidth: '2px',
     },
     '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': {
-      backgroundColor: 'var(--zj-selection)',
+      backgroundColor: 'var(--zj-editor-selection)',
     },
-    /* 失焦时的选区也要看得见（弱一档即可，仍用 token） */
+    /* 失焦时的选区也要看得见（弱一档：同一个色 + 降透明度；不能退回那个对比度过低的全局 token） */
     '&:not(.cm-focused) .cm-selectionBackground': {
-      backgroundColor: 'var(--zj-selection)',
+      backgroundColor: 'var(--zj-editor-selection)',
       opacity: '0.6',
     },
 

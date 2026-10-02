@@ -26,6 +26,10 @@ import {
   listDecorations,
   parseLineRender,
 } from '../livePreview.ts'
+// t55 的选区断言需要在顶层读源码（文件里别处是块内动态导入，名字带 2 后缀）
+import fs from 'node:fs'
+import path from 'node:path'
+import url from 'node:url'
 
 /* ------------------------------ 断言框架 ------------------------------ */
 
@@ -584,6 +588,30 @@ eq('- [ ] 任务续行', continueList('- [ ] a\n', 7), '- [ ] a\n- [ ] \n')
 }
 
 /* ------------------------------ 汇总 ------------------------------ */
+
+/* ---------------- t55：编辑器文字选区的对比度 ---------------- */
+
+/** 自包含读源码（不依赖文件里别处块的 helper 作用域） */
+const hereSel = path.dirname(url.fileURLToPath(import.meta.url))
+const rootSel = path.resolve(hereSel, '..', '..', '..', '..')
+const readSel = (relative) => fs.readFileSync(path.join(rootSel, relative), 'utf8')
+
+check(
+  't55：编辑器文字选区必须用专用的高对比色（不得退回对比度过低的 --zj-selection）',
+  (() => {
+    const theme = readSel('src/features/editor/editorTheme.ts')
+    if (theme.length === 0) return false // 防空跑：读不到就是失败
+    return (
+      /--zj-editor-selection/.test(theme) &&
+      /color-mix\(in srgb, var\(--zj-accent\)/.test(theme) &&
+      !/backgroundColor: 'var\(--zj-selection\)'/.test(theme)
+    )
+  })(),
+  '全局 --zj-selection 在默认主题下是 #f0e3bc、底色 #fdf8ec，对比度仅 1.21 —— 文字选中后几乎看不出反色' +
+    '（用户实测反馈：「被选中的文字不会反色显示或者反色与底色相同无法分辨」）。' +
+    '那个 token 还要给侧栏选中项、标题栏 hover 等"面状高亮"用，必须保持淡雅，' +
+    '所以编辑器选区单独用 --zj-editor-selection（强调色 70% 混合 → #d9bc62，实测清晰可辨、文字依旧清楚）。',
+)
 
 const failed = results.filter((result) => !result.ok)
 const passCount = results.length - failed.length
